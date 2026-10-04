@@ -15,6 +15,7 @@ import type { ReactNode } from 'react'
 import { Button, IconWarningOutlineRegular, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { PERMISSION_ACCESS_NS } from './locales.ts'
+import type { ReviewerRouteEffortsAnswer } from './reviewer-route-chooser.ts'
 import type { ReviewerModelView, ReviewerProviderView, ReviewerRouteValue } from './remote.ts'
 import { ReviewerRoutePicker } from './ReviewerRoutePicker.tsx'
 import css from './ReviewerRouteDialog.module.css'
@@ -51,9 +52,8 @@ export interface ReviewerRouteDialogProps {
   readonly models: readonly ReviewerModelView[]
   /** Provider whose model list {@link models} belongs to, or null while unknown. */
   readonly modelsProvider: string | null
-  readonly reasoningEfforts: readonly string[]
-  /** Route whose efforts {@link reasoningEfforts} belongs to, or null while unknown. */
-  readonly effortsRoute: ReviewerRouteValue | null
+  /** Reasoning capability of the chosen model, in every state it can be in. */
+  readonly efforts: ReviewerRouteEffortsAnswer
   readonly t: TranslateNS<typeof PERMISSION_ACCESS_NS>
   readonly onProviderChange: (provider: string) => void
   readonly onChange: (route: ReviewerRouteValue | null) => void
@@ -68,7 +68,7 @@ export interface ReviewerRouteDialogProps {
  */
 export function ReviewerRouteDialog({
   open, title, confirmLabel, risk, loading, disabled, failure,
-  value, sessionRoute, providers, providersLoaded, models, modelsProvider, reasoningEfforts, effortsRoute, t,
+  value, sessionRoute, providers, providersLoaded, models, modelsProvider, efforts, t,
   onProviderChange, onChange, onCancel, onConfirm,
 }: ReviewerRouteDialogProps): ReactNode {
   return (
@@ -111,8 +111,7 @@ export function ReviewerRouteDialog({
           providersLoaded={providersLoaded}
           models={models}
           modelsProvider={modelsProvider}
-          reasoningEfforts={reasoningEfforts}
-          effortsRoute={effortsRoute}
+          efforts={efforts}
           disabled={disabled}
           t={t}
           onProviderChange={onProviderChange}

@@ -11,7 +11,9 @@
  * @module dsh-auto-review-plus/client/use-reviewer-route
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ReviewerRouteLoadFences, commitReviewerRouteProviders } from './reviewer-route-chooser.ts'
+import {
+  ReviewerRouteLoadFences, commitReviewerRouteProviders, type ReviewerRouteEffortsAnswer,
+} from './reviewer-route-chooser.ts'
 import type {
   ReviewerModelView,
   ReviewerProviderView,
@@ -41,13 +43,12 @@ export interface ReviewerRouteState {
    * that must not be confused for a valid pin.
    */
   readonly modelsProvider: string | null
-  /** Reasoning efforts of the model currently chosen in the picker. */
-  readonly reasoningEfforts: readonly string[]
   /**
-   * Route whose efforts {@link reasoningEfforts} belongs to, or null. Set only
-   * once an answer arrives, for the same reason as {@link modelsProvider}.
+   * Reasoning capability of the chosen route, in every state it can be in. One
+   * value instead of a list plus the route it belongs to: a failed read must
+   * never be presentable as an empty capability list.
    */
-  readonly effortsRoute: ReviewerRouteValue | null
+  readonly efforts: ReviewerRouteEffortsAnswer
   /** Human-readable failure of the last read, or null. */
   readonly failure: string | null
   /** Load the provider list and the session's route. */
@@ -80,8 +81,7 @@ export function useReviewerRoute(
   const [providersLoaded, setProvidersLoaded] = useState(false)
   const [models, setModels] = useState<readonly ReviewerModelView[]>([])
   const [modelsProvider, setModelsProvider] = useState<string | null>(null)
-  const [reasoningEfforts, setReasoningEfforts] = useState<readonly string[]>([])
-  const [effortsRoute, setEffortsRoute] = useState<ReviewerRouteValue | null>(null)
+  const [efforts, setEfforts] = useState<ReviewerRouteEffortsAnswer>({ kind: 'pending' })
   const [failure, setFailure] = useState<string | null>(null)
   // The injected face is rebuilt by the slot host on every render, so the
   // loaders must not depend on its identity; the ref carries the live one.
@@ -97,8 +97,7 @@ export function useReviewerRoute(
     setProvidersLoaded(false)
     setModels([])
     setModelsProvider(null)
-    setReasoningEfforts([])
-    setEffortsRoute(null)
+    setEfforts({ kind: 'pending' })
     void apiRef.current.view(sessionId).then(
       (next) => { if (current()) setView(next) },
       (error: unknown) => {
@@ -134,8 +133,7 @@ export function useReviewerRoute(
     // No provider owns a list until one arrives: claiming `provider` here would
     // let an empty (still loading) list read as "this model is unavailable".
     setModelsProvider(null)
-    setReasoningEfforts([])
-    setEffortsRoute(null)
+    setEfforts({ kind: 'pending' })
     void apiRef.current.models(provider).then(
       (next) => {
         if (!current()) return
@@ -153,27 +151,24 @@ export function useReviewerRoute(
 
   const selectRoute = useCallback((route: ReviewerRouteValue): void => {
     const current = fences.current.start('efforts')
-    setReasoningEfforts([])
-    setEffortsRoute(null)
+    setEfforts({ kind: 'pending' })
     void apiRef.current.modelInfo(route.provider, route.model).then(
       // A capability read that fails is not a reason to refuse the route: the
-      // host validates it on write, and the chooser then reports no efforts for
-      // a route it could not interrogate.
+      // host validates it on write, so the row reports the capability as
+      // unknown instead of announcing that the model has none.
       (info) => {
         if (!current()) return
-        setReasoningEfforts(info.reasoningEfforts)
-        setEffortsRoute(route)
+        setEfforts({ kind: 'ready', route, efforts: info.reasoningEfforts })
       },
       () => {
         if (!current()) return
-        setReasoningEfforts([])
-        setEffortsRoute(route)
+        setEfforts({ kind: 'failed', route })
       },
     )
   }, [])
 
   return {
-    view, providers, providersLoaded, models, modelsProvider, reasoningEfforts, effortsRoute, failure,
+    view, providers, providersLoaded, models, modelsProvider, efforts, failure,
     reload, selectProvider, selectRoute,
   }
 }

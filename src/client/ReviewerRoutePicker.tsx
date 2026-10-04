@@ -13,7 +13,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { PERMISSION_ACCESS_NS } from './locales.ts'
-import { reviewerRouteEffortsLoaded, reviewerRouteOptionState } from './reviewer-route-chooser.ts'
+import { reviewerRouteEffortsState, reviewerRouteOptionState } from './reviewer-route-chooser.ts'
+import type { ReviewerRouteEffortsAnswer } from './reviewer-route-chooser.ts'
 import type { ReviewerModelView, ReviewerProviderView, ReviewerRouteValue } from './remote.ts'
 import css from './ReviewerRoutePicker.module.css'
 
@@ -38,14 +39,12 @@ export interface ReviewerRoutePickerProps {
    * model is unavailable".
    */
   readonly modelsProvider: string | null
-  /** Reasoning efforts of the chosen model, in adapter order. */
-  readonly reasoningEfforts: readonly string[]
   /**
-   * Route whose efforts {@link reasoningEfforts} belongs to, or null while none
-   * has arrived. Without it an unread effort list would read as "this model
-   * exposes no reasoning levels".
+   * Reasoning capability of the chosen model, in every state it can be in. One
+   * value instead of a list plus the route it belongs to, so a failed read can
+   * never be shown as "this model exposes no reasoning levels".
    */
-  readonly effortsRoute: ReviewerRouteValue | null
+  readonly efforts: ReviewerRouteEffortsAnswer
   /** Whether the choice cannot be edited right now (locked session, write in flight). */
   readonly disabled: boolean
   /** Locale lookup of this plugin's own namespace. */
@@ -80,7 +79,7 @@ function selectionOf(value: ReviewerRouteValue | null): Selection {
  * @returns the chooser's form rows.
  */
 export function ReviewerRoutePicker({
-  value, sessionRoute, providers, providersLoaded, models, modelsProvider, reasoningEfforts, effortsRoute,
+  value, sessionRoute, providers, providersLoaded, models, modelsProvider, efforts,
   disabled, t, onProviderChange, onChange,
 }: ReviewerRoutePickerProps): ReactNode {
   const [selection, setSelection] = useState<Selection>(() => selectionOf(value))
@@ -158,7 +157,14 @@ export function ReviewerRoutePicker({
   const chosenRoute = selection.kind === 'custom' && selection.model !== ''
     ? { provider: selection.provider, model: selection.model }
     : null
-  const effortsLoaded = reviewerRouteEffortsLoaded({ loadedFor: effortsRoute, route: chosenRoute })
+  const effortsState = reviewerRouteEffortsState({ answer: efforts, route: chosenRoute })
+  const listedEfforts = efforts.kind === 'ready' ? efforts.efforts : []
+  /**
+   * What the model select says while no model of the chosen provider is
+   * selected. An empty string is "nothing chosen yet", NOT an unavailable
+   * route: that sentence is reserved for a concrete model an arrived list omits.
+   */
+  const blankModelLabel = modelsForSelection ? t('reviewerRoute.noModels') : t('reviewerRoute.loading')
   const modelSelectDisabled = disabled || selection.kind === 'follow' || !modelsForSelection || listing.length === 0
   const sessionRouteLabel = sessionRoute === null
     ? t('reviewerRoute.followSession')
@@ -201,7 +207,7 @@ export function ReviewerRoutePicker({
           {selection.kind === 'custom' && (selection.model === '' || modelState === 'pending')
             ? (
               <option value={selection.model}>
-                {modelState === 'pending' ? t('reviewerRoute.loading') : t('reviewerRoute.unknownRoute')}
+                {modelState === 'pending' ? t('reviewerRoute.loading') : blankModelLabel}
               </option>
             )
             : null}
@@ -216,9 +222,11 @@ export function ReviewerRoutePicker({
       {customModel === '' ? null : (
         <p className={css.capability}>
           {`${t('reviewerRoute.reasoning')}: `}
-          {!effortsLoaded
+          {effortsState === 'pending'
             ? t('reviewerRoute.loading')
-            : reasoningEfforts.length === 0 ? t('reviewerRoute.noReasoning') : reasoningEfforts.join(' / ')}
+            : effortsState === 'failed'
+              ? t('reviewerRoute.unknownReasoning')
+              : listedEfforts.length === 0 ? t('reviewerRoute.noReasoning') : listedEfforts.join(' / ')}
         </p>
       )}
     </div>

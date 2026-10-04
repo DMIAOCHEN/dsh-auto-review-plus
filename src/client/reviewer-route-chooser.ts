@@ -172,27 +172,47 @@ export function reviewerRouteOptionState(input: ReviewerRouteOptionInput): Revie
   return input.loaded ? 'absent' : 'pending'
 }
 
+/**
+ * The capability answer for one exact route, as the chooser sees it.
+ *
+ * `failed` is a first-class answer on purpose: a read that never arrived and a
+ * read that came back "no reasoning levels" are different facts, and only the
+ * second one may be reported as the model exposing nothing. Folding the failure
+ * into an empty list would turn a broken read into a capability claim.
+ */
+export type ReviewerRouteEffortsAnswer =
+  | { readonly kind: 'pending' }
+  | { readonly kind: 'ready'; readonly route: ReviewerRouteValue; readonly efforts: readonly string[] }
+  | { readonly kind: 'failed'; readonly route: ReviewerRouteValue }
+
+/** How the capability row of the chosen route has to read. */
+export type ReviewerRouteEffortsState = 'pending' | 'ready' | 'failed'
+
 /** Inputs of the reasoning-capability decision. */
 export interface ReviewerRouteEffortsInput {
-  /** Route whose efforts the accepted answer reported, or null while unknown. */
-  readonly loadedFor: ReviewerRouteValue | null
+  /** Last capability answer this session received. */
+  readonly answer: ReviewerRouteEffortsAnswer
   /** Route currently chosen, or null when the chooser follows the session. */
   readonly route: ReviewerRouteValue | null
 }
 
 /**
- * Whether the reasoning efforts on screen belong to the chosen route.
+ * Decide which sentence the capability row may state about the chosen route.
  *
- * Same rule as {@link reviewerRouteOptionState}: an effort list that has not
- * arrived (or belongs to another route) must not be reported as "this model
- * exposes no reasoning levels".
- * @param input - the route the accepted answer named and the chosen route.
- * @returns whether the efforts may be reported as this route's own.
+ * Only an answer that arrived AND names the exact chosen route can claim
+ * anything: `ready` with an empty list means "no reasoning levels", `failed`
+ * means the capability is unknown, and anything else (a pending read, or an
+ * answer for another route) is still loading. Same rule as
+ * {@link reviewerRouteOptionState}, for the same reason.
+ * @param input - the received answer and the chosen route.
+ * @returns which sentence the row is allowed to show.
  */
-export function reviewerRouteEffortsLoaded(input: ReviewerRouteEffortsInput): boolean {
-  if (input.loadedFor === null || input.route === null) return false
-  return input.loadedFor.provider === input.route.provider
-    && input.loadedFor.model === input.route.model
+export function reviewerRouteEffortsState(input: ReviewerRouteEffortsInput): ReviewerRouteEffortsState {
+  if (input.route === null) return 'pending'
+  if (input.answer.kind === 'pending') return 'pending'
+  if (input.answer.route.provider !== input.route.provider) return 'pending'
+  if (input.answer.route.model !== input.route.model) return 'pending'
+  return input.answer.kind === 'ready' ? 'ready' : 'failed'
 }
 
 /**

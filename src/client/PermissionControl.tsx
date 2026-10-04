@@ -135,9 +135,15 @@ export function PermissionControl({
   )
   const pinnedRoute = reviewerRouteState.view?.route
 
+  // Upstream's own reset: no session, no catalog, a locked session, or a
+  // confirmation whose preset left the catalog closes the dialog. It is the
+  // FOURTH close path and must invalidate an in-flight confirmation like the
+  // other three (Cancel, the prompt's Cancel, and the auto-prompt's own close):
+  // a settlement arriving after this must not switch the preset.
   useEffect(() => {
     if (!locked && selection !== undefined && catalog !== null
       && (confirmation === null || catalog.options.some(option => option.value === confirmation))) return
+    reviewerAttempt.current.cancel()
     setOpen(false)
     setAcknowledged(false)
     setConfirmation(null)
@@ -181,6 +187,11 @@ export function PermissionControl({
     setReviewerWriteFailure(null)
     setReviewerPrompt(true)
   }, [autoActive, confirmation, pinnedRoute, reviewerPrompt, sessionId])
+
+  // Unmounting (the composer for this session is going away) takes an in-flight
+  // confirmation with it, so a settlement can never act after the control — and
+  // therefore its dialog — is gone.
+  useEffect(() => () => { reviewerAttempt.current.cancel() }, [])
 
   if (selection === undefined || catalog === null) return null
 
@@ -323,7 +334,7 @@ export function PermissionControl({
       () => {
         if (!accepted()) return
         acceptReviewerWrite()
-        setReviewerPrompt(false)
+        closeReviewerPrompt()
       },
       () => undefined,
     )
@@ -427,8 +438,7 @@ export function PermissionControl({
           providersLoaded={reviewerRouteState.providersLoaded}
           models={reviewerRouteState.models}
           modelsProvider={reviewerRouteState.modelsProvider}
-          reasoningEfforts={reviewerRouteState.reasoningEfforts}
-          effortsRoute={reviewerRouteState.effortsRoute}
+          efforts={reviewerRouteState.efforts}
           t={t}
           onProviderChange={reviewerRouteState.selectProvider}
           onChange={changeReviewerDraft}
@@ -468,8 +478,7 @@ export function PermissionControl({
         providersLoaded={reviewerRouteState.providersLoaded}
         models={reviewerRouteState.models}
         modelsProvider={reviewerRouteState.modelsProvider}
-        reasoningEfforts={reviewerRouteState.reasoningEfforts}
-        effortsRoute={reviewerRouteState.effortsRoute}
+        efforts={reviewerRouteState.efforts}
         t={t}
         onProviderChange={reviewerRouteState.selectProvider}
         onChange={changeReviewerDraft}

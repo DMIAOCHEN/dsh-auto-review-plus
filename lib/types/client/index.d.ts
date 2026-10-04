@@ -77,6 +77,8 @@ declare const accessEn: {
   'reviewerRoute.model': string;
   'reviewerRoute.reasoning': string;
   'reviewerRoute.noReasoning': string;
+  'reviewerRoute.unknownReasoning': string;
+  'reviewerRoute.noModels': string;
   'reviewerRoute.unknownRoute': string;
   'reviewerRoute.loading': string;
   'reviewerRoute.confirm': string;

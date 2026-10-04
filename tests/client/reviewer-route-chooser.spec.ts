@@ -5,7 +5,7 @@ import {
   commitReviewerRouteProviders,
   planReviewerRouteAdoption,
   reviewerRouteChooserFailure,
-  reviewerRouteEffortsLoaded,
+  reviewerRouteEffortsState,
   reviewerRouteOptionState,
   runReviewerRouteAdoption,
 } from '../../src/client/reviewer-route-chooser.ts'
@@ -151,26 +151,40 @@ describe('reviewerRouteOptionState', () => {
   })
 })
 
-describe('reviewerRouteEffortsLoaded', () => {
-  it('reports nothing as loaded before an answer arrives', () => {
+describe('reviewerRouteEffortsState', () => {
+  it('reports a pending read as pending, never as a capability', () => {
     // Otherwise the row would assert "this model exposes no reasoning levels"
     // about a model nobody has interrogated yet.
-    expect(reviewerRouteEffortsLoaded({ loadedFor: null, route })).toBe(false)
+    expect(reviewerRouteEffortsState({ answer: { kind: 'pending' }, route })).toBe('pending')
   })
 
-  it('reports nothing as loaded when the answer belongs to another route', () => {
-    expect(reviewerRouteEffortsLoaded({
-      loadedFor: { provider: route.provider, model: 'other' },
+  it('reports an answer that belongs to another route as pending', () => {
+    expect(reviewerRouteEffortsState({
+      answer: { kind: 'ready', route: { provider: route.provider, model: 'other' }, efforts: ['high'] },
       route,
-    })).toBe(false)
+    })).toBe('pending')
   })
 
-  it('accepts the answer for the exact route', () => {
-    expect(reviewerRouteEffortsLoaded({ loadedFor: route, route })).toBe(true)
+  it('reports the exact route\'s answer as ready', () => {
+    expect(reviewerRouteEffortsState({ answer: { kind: 'ready', route, efforts: [] }, route })).toBe('ready')
   })
 
-  it('reports nothing while the chooser follows the session', () => {
-    expect(reviewerRouteEffortsLoaded({ loadedFor: route, route: null })).toBe(false)
+  it('reports a FAILED read as failed, not as "no reasoning levels"', () => {
+    // Fix round 3: an empty list and a broken read are different facts; only the
+    // first one may be stated as the model exposing nothing.
+    expect(reviewerRouteEffortsState({ answer: { kind: 'failed', route }, route })).toBe('failed')
+  })
+
+  it('reports a failed read for another route as pending', () => {
+    expect(reviewerRouteEffortsState({
+      answer: { kind: 'failed', route: { provider: route.provider, model: 'other' } },
+      route,
+    })).toBe('pending')
+  })
+
+  it('reports pending while the chooser follows the session', () => {
+    expect(reviewerRouteEffortsState({ answer: { kind: 'ready', route, efforts: ['high'] }, route: null }))
+      .toBe('pending')
   })
 })
 
