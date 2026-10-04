@@ -68,7 +68,11 @@ function cssModulesPlugin(id) {
       // The virtual id otherwise hides the physical stylesheet from the watch graph.
       this.addWatchFile(fileId)
       const source = await readFile(fileId, 'utf8')
-      const hash = createHash('sha1').update(fileId).digest('hex').slice(0, 6)
+      // Hash the plugin id and the stylesheet TEXT, never the absolute path: a
+      // path-dependent name would make the committed artifact differ from a
+      // build on any other machine (CI's drift check caught exactly that), while
+      // the id keeps two plugins' identical sheets from colliding.
+      const hash = createHash('sha1').update(`${id}\n${source}`).digest('hex').slice(0, 6)
       const classMap = {}
       for (const local of new Set([...source.matchAll(/\.([A-Za-z_][A-Za-z0-9_-]*)/g)].map(match => match[1]))) {
         classMap[local] = `${hash}_${local}`

@@ -18,5 +18,5 @@ jobs:
       - run: npm run build
       - name: Verify committed artifacts match a fresh build
         run: |
-          git diff --exit-code -- lib/index.js lib/client.js \
-            || { echo "::error::lib/ is stale — run 'npm run build' and commit the result"; exit 1; }
+          test -z "$(git status --porcelain -- lib)" \
+            || { git status --porcelain -- lib; echo "::error::lib/ is stale — run 'npm run build' and commit the result"; exit 1; }
