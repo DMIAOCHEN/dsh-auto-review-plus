@@ -9,7 +9,8 @@
  * (`packages/experimental/auto-review/src/index.ts`) with one change of
  * substance: the review request and its decision protocol come from
  * `./review.ts` (session-aware request, capability-checked fallback reasoning
- * level) and the reviewer route from `./reviewer-route.ts`.
+ * level, and one retry when a pinned route rejects the session's own level)
+ * and the reviewer route from `./reviewer-route.ts`.
  * @module dsh-auto-review-plus
  */
 
@@ -34,9 +35,7 @@ import {
 } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
 import {
-  buildReviewRequest,
-  readReviewDecision,
-  resolveReviewReasoning,
+  runReview,
   type AutoReviewDecision,
   type ReviewRequestInput,
 } from './review.ts'
@@ -590,7 +589,9 @@ type ReviewOutcome =
  *
  * The review never throws: a failed review is an outcome, so the caller can
  * report the route it failed under instead of collapsing every cause into one
- * unnamed denial.
+ * unnamed denial. The request itself (including the one retry a pinned route
+ * may need) belongs to `./review.ts`; this function owns the route, the
+ * snapshot, and the diagnostic that names them.
  * @param ctx - host context carrying the LLM runtime.
  * @param agent - agent whose session names the reviewer route.
  * @param exec - immutable pending execution being reviewed.
@@ -617,25 +618,29 @@ async function classifyRisk(
     route = reviewerRoute(reviewerRouteTable, agent.session.id)
     const snapshot = snapshotAutoReview(agent, exec)
     route ??= { provider: snapshot.provider, model: snapshot.model }
-    const reasoningEffort = await resolveReviewReasoning({
+    // This review prompt is sent only through ctx.llm.stream and never enters a Session log.
+    const decision = await runReview({
       llm: ctx.llm,
       provider: route.provider,
       model: route.model,
+      sessionId: String(agent.session.id),
       ...snapshot.reasoningEffort === undefined ? {} : { sessionEffort: snapshot.reasoningEffort },
       ...fallbackReasoningEffort === undefined ? {} : { fallbackEffort: fallbackReasoningEffort },
-      signal,
-    })
-    // This review prompt is sent only through ctx.llm.stream and never enters a Session log.
-    const request = buildReviewRequest({
-      provider: route.provider,
-      model: route.model,
-      sessionId: String(agent.session.id),
-      ...reasoningEffort === undefined ? {} : { reasoningEffort },
       system: REVIEW_POLICY,
       userText: reviewUserText(snapshot),
       signal,
+      // The session's level is the session MODEL's level, so a pinned review
+      // route that cannot take it would otherwise deny every call of this
+      // session without ever judging one. The retry is one line of diagnosis
+      // away from being invisible, so it is logged where the route is known.
+      onUnsupportedSessionEffort: ({ effort, provider, model }) => {
+        ctx.logger.warn(
+          `auto-review-plus: review route "${provider}/${model}" does not support the session `
+          + `reasoning effort "${effort}"; retrying this review once without a reasoning effort`,
+        )
+      },
     })
-    return { ok: true, route, decision: await readReviewDecision(ctx.llm.stream(request)) }
+    return { ok: true, route, decision }
   } catch (error) {
     return { ok: false, route, error }
   }
@@ -769,17 +774,26 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       yield stopListener
       let stopContribution: () => Promise<void>
       try {
-        // A single-slot registration: the official layer holding it throws here,
+        // A single-slot registration: whoever already holds the slot throws here,
         // and the guidance below is the only thing that tells the person how to
         // hand the preset over. Never swallow this into a silent no-load.
         stopContribution = permissionPresets.registerAuto(() => {
           if (!accepting) throw new Error('auto-review-plus: integration is closing')
         })
       } catch (error) {
+        // A single-slot registration has exactly two holders, and the log has to
+        // name both: the official layer, or a PREVIOUS instance of this package
+        // whose teardown threw before `stopContribution` ran (cordis disposes one
+        // effect's disposables as a promise chain, so a rejecting teardown
+        // short-circuits every later disposer — the same fact the teardown below
+        // guards against). Blaming only the official layer sends that second
+        // person to disable a row that is already disabled.
         ctx.logger.error(
-          'auto-review-plus: cannot take over the "auto" preset — the official '
-          + '@deepseek-ai/dsh-experimental-auto-review layer is still active. '
-          + 'Disable its row (disabled: true) or remove it from the profile bundles.',
+          'auto-review-plus: cannot take over the "auto" preset — its single slot is still held. '
+          + 'Either the official @deepseek-ai/dsh-experimental-auto-review layer is still active, '
+          + 'or a previous instance of this package failed to unload and never released the slot. '
+          + 'Restart dsh first; if the conflict survives the restart, confirm the official row is '
+          + 'disabled (disabled: true) or remove it from the profile bundles.',
           error,
         )
         // Standing down must not leave this gate armed. `current(session)` returns
