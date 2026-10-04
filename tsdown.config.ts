@@ -31,6 +31,20 @@ function packageName(): string {
 const CLIENT_ID = packageName()
 
 /**
+ * Prefix every emitted class name so the result is a legal CSS identifier.
+ *
+ * The hash is hexadecimal, so `<hash>_<local>` can start with a DIGIT — and a
+ * class selector starting with a digit is invalid CSS. A browser then drops the
+ * WHOLE rule while the class name is still on the element, so the surface keeps
+ * the browser's default styling and nothing reports an error: found on a real
+ * GUI, where `632ba0_picker` left the reviewer chooser unstyled and only
+ * `ca829f_trigger` (a letter-leading hash) worked. The underscore guarantees the
+ * identifier start; the hash still derives from the module id and the stylesheet
+ * text, so the same input keeps producing the same name on every machine.
+ */
+const CLASS_PREFIX = '_'
+
+/**
  * Virtual-id wrapper keeping module CSS away from tsdown's own CSS pipeline
  * (which requires @tsdown/css). The suffix matters: tsdown's guard matches ids
  * ending in `.css`, so the virtual id must not — same trick as the upstream
@@ -170,7 +184,7 @@ function cssModulesPlugin(id, root) {
       // the id keeps two plugins' identical sheets from colliding.
       const hash = createHash('sha1').update(`${id}\n${source}`).digest('hex').slice(0, 6)
       const classMap = {}
-      const compiled = rewriteClassSelectors(source, local => (classMap[local] ??= `${hash}_${local}`))
+      const compiled = rewriteClassSelectors(source, local => (classMap[local] ??= `${CLASS_PREFIX}${hash}_${local}`))
       return styleInjectionModule(id, fileId, compiled, classMap)
     },
   }

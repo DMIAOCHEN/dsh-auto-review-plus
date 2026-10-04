@@ -38,3 +38,11 @@ jobs:
       # apart; it runs `npm pack --dry-run` and uploads nothing.
       - name: Verify the manifest entry points and the packed file list
         run: node .github/scripts/verify-pack.mjs
+
+      # The drift check compares artifacts to a fresh build, so it cannot tell a
+      # valid artifact from a broken one. This reads the COMMITTED client bundle
+      # and rejects CSS class names that are not legal identifiers — a class
+      # selector starting with a digit is dropped by the browser in silence, so
+      # the surface renders unstyled with every other check still green.
+      - name: Verify the client bundle's CSS class names
+        run: node .github/scripts/verify-client-css.mjs
