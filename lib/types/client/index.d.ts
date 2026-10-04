@@ -1,9 +1,9 @@
 import { Context } from "@deepseek-ai/cordis";
+import { RemoteResult } from "@deepseek-ai/dsh-typert-protocol";
 import "react";
-import { HostObservable, InjectFace, PropsLocale, PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
 import "@deepseek-ai/dsh-client-store";
 import { PermissionCatalog } from "@deepseek-ai/dsh-permission-presets/client";
-import { RemoteResult } from "@deepseek-ai/dsh-typert-protocol";
+import { HostObservable, InjectFace, PropsLocale, PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
 
 //#region src/client/locales.d.ts
 /**
@@ -171,9 +171,21 @@ interface PermissionControlInjected {
 type PermissionControlProps = PropsRuntime<'conversation.input.permission'> & InjectFace<PermissionControlInjected> & PropsLocale<typeof PERMISSION_ACCESS_NS>;
 
 //#endregion
+//#region src/client/mount.d.ts
+/**
+ * Required services of the plugin fiber itself: exactly what
+ * {@link mountPermissionControl} reads BEFORE the namespace it creates exists.
+ * The plugin's own namespace must not appear here (see the module comment).
+ */
+declare const inject: readonly ["remote"];
+
+//#endregion
 //#region src/client/index.d.ts
-/** Required services (cordis fiber inject). */
-declare const inject: string[];
+/**
+ * Services the registration reads, this plugin's own namespace included. A
+ * declaration is what makes a service reachable from a fiber, so the child
+ * fiber declares everything its body touches rather than inheriting reach.
+ */
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Current-session permission picker and confirmation copy. */
@@ -185,11 +197,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  *
  * Async on purpose: this plugin's own Remote namespace has to be mounted before
  * any chooser can read or write a reviewer route, and a mount that fails leaves
- * the shipped control in place (nothing below has registered anything yet)
+ * the shipped control in place (nothing else has registered anything yet)
  * instead of shadowing it with a half-wired one.
- * @param ctx - client root context.
+ * @param ctx - client plugin context.
+ * @returns disposer releasing the registration and the mounted namespace.
  */
-declare function apply(ctx: Context): Promise<void>;
+declare function apply(ctx: Context): Promise<() => Promise<void>>;
 
 //#endregion
 export { PermissionControlInjected, PermissionControlProps, apply, inject };
