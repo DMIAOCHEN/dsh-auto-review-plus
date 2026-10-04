@@ -23,4 +23,14 @@ const client = {
   outputOptions: { entryFileNames: 'client.body.js' },
 }
 
-export default defineConfig([host, client])
+/** Type declarations only: emitted to lib/types so package.json's types/exports/files all resolve. */
+const types = {
+  entry: ['src/index.ts', 'src/client/index.tsx'],
+  format: ['es'],
+  platform: 'node',
+  target: 'node20',
+  dts: { emitDtsOnly: true },
+  outDir: 'lib/types',
+}
+
+export default defineConfig([host, client, types])
