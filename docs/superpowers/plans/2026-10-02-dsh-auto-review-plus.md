@@ -353,10 +353,10 @@ export function apply(_ctx: Context): void {
 npm run build
 npm pack
 npx -y @deepseek-ai/dsh plugin --profile web add ./dsh-auto-review-plus-0.1.0.tgz
-npx -y @deepseek-ai/dsh plugin --profile web root
+npx -y @deepseek-ai/dsh plugin --profile web list
 ```
 
-Expected: `lib/index.js` 与 `lib/client.js` 生成；`dsh plugin root` 显示 `dsh-auto-review-plus` 已启用；profile 的 `dsh.profile.bundles` 末尾出现它。**不要移除也不要停用官方 auto-review**——`auto` preset 的接管发生在 Task 5。
+Expected: `lib/index.js` 与 `lib/client.js` 生成；`dsh plugin list` 显示 `dsh-auto-review-plus` 已启用（注意：`dsh plugin --profile web root` 不是清单命令——`plugin` 把参数原样转发给 pnpm，`root` 等价于 `pnpm root`，只打印 node_modules 路径）；profile 的 `dsh.profile.bundles` 末尾出现它。**不要移除也不要停用官方 auto-review**——`auto` preset 的接管发生在 Task 5。
 
 必须用 tarball 而不是 `add .`：目录安装会产生 `link:` 依赖，把本仓库的 `node_modules`（含 react/tsdown/vitest 与 `@deepseek-ai/*` 的开发副本）暴露进 profile 的解析链，遮蔽运行安装自带的同名包。
 
@@ -876,11 +876,12 @@ cp "E:/03.Github/deepseek-harness/packages/experimental/auto-review/src/index.ts
 ```bash
 npm run build
 npm run typecheck
-npx -y @deepseek-ai/dsh plugin --profile web add .
-npx -y @deepseek-ai/dsh plugin --profile web root
+npm pack
+npx -y @deepseek-ai/dsh plugin --profile web add ./dsh-auto-review-plus-0.1.0.tgz
+npx -y @deepseek-ai/dsh plugin --profile web list
 ```
 
-Expected: 构建通过；`root` 输出显示 `dsh-auto-review-plus` 已安装且启用；`cordis.patch.yml` 中官方 `auto-review` 行被 `disabled: true`。
+Expected: 构建通过；`dsh plugin list` 显示 `dsh-auto-review-plus` 已安装且启用（不要用 `root`，它是 `pnpm root` 的转发）；本包 `cordis.patch.yml` 对官方 `auto-review` 行写入 `disabled: true`。
 
 - [ ] **Step 5: 端到端验证（spec 清单 7/8/9）**
 
