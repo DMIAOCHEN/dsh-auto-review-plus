@@ -28,13 +28,15 @@
 - <https://github.com/deepseek-ai/deepseek-harness/discussions/8670>
 - <https://github.com/deepseek-ai/deepseek-harness/discussions/8764>
 
-**本包是权宜之计。** 上游实现同等能力后，请改用上游并删除本包。判断标准是两条：
+**本包是权宜之计，退出规则是明确的一条。** 上游两条讨论中**任一条**的修复发布后，只要官方审查请求已经
+携带 `sessionId` 与该会话的思考级别，本包就应**被弃用**：请[卸载](#卸载)本包，让
+`@deepseek-ai/dsh-experimental-auto-review` 重新拥有该 preset。
 
-- **A —— 会话上下文**：Auto review 请求携带会话 id 与该会话的思考级别。
-- **B —— 审查模型可选**：可以配置由哪个模型审查（最好能按会话）。
-
-上游只补齐 **A** 时，本包剩下的价值是 **B**，仍然值得存在；**A 与 B 都补齐**后本包即被取代：
-请[卸载](#卸载)本包，让 `@deepseek-ai/dsh-experimental-auto-review` 重新拥有该 preset。
+- **退出判据（决定弃用与否）**：官方 Auto review 请求携带会话 id 与会话自身的思考级别。spec 把这一条
+  定为判据，它单独成立即足够——不需要再等别的条件。
+- **补充考量（不决定弃用与否）**：能否按会话配置审查模型。若上述判据已满足而这一项仍缺，剩下的问题只是
+  「要不要自己留一个 fork 的选择器」，而**不是**「要不要继续装着本包」。继续装着，本包那层
+  `disabled: true` 就会留在 `dsh.profile.bundles` 里，把上游**刚刚修好**的官方 Auto review 关掉。
 
 ## 环境要求
 
@@ -68,6 +70,10 @@ npx -y @deepseek-ai/dsh plugin --profile web add dsh-auto-review-plus@latest --r
 **不要**用 `dsh plugin --profile web add .`：目录依赖会就地改写 profile 的依赖布局。本项目一律从
 tarball 或 git 源安装。
 
+> **目前还没有任何 tag。** 在维护者切出 `v0.1.0` 之前，仓库没有发布 tag（现在 `git tag -l` 是空的），
+> 所以上面那条钉版本的 `#v0.1.0` 命令在此之前会失败。请先用不带 tag 的 GitHub 命令或本地 tarball；
+> 发布清单见下文。
+
 然后：
 
 1. **完全重启 `dsh web`**。profile 层只在启动时装配——正在运行的进程仍持有启动时的插件集合，运行中安装
@@ -93,7 +99,7 @@ patch 只能停用装配时**已经声明**的行，且后层胜出。因此
 **`dsh.profile.bundles` 里官方的 `@deepseek-ai/dsh-experimental-auto-review` 必须排在本包之前**——
 我们的 patch 层是排在他**之后**应用的。`dsh plugin add` 会把新装的 bundle 追加到数组末尾，所以默认顺序
 本来就是对的。该列表在 `$DSH_HOME/profiles/web/package.json`（`$DSH_HOME` 默认是 `~/.dsh`），健康安装
-长这样（只列出相关字段）：
+长这样（这里是节选：真机里还有 `dsh-better-sidebar` 等其他 bundle，`dsh` 之外的其他字段也一并省略）：
 
 ```json
 {
@@ -138,16 +144,25 @@ auto-review-plus: cannot take over the "auto" preset — the official @deepseek-
 - **选择器展示的是审查模型的能力**：*思考级别* 行列出所选模型支持的级别。真正随审查请求发出的级别是
   该会话自己的思考级别；会话没有钉住时，才使用配置项 `fallbackReasoningEffort`（且仅当该审查路由确实
   提供该级别时才生效）。
-- **只问一次**：某个会话处于 Auto review 且没有记录时，选择器会自动弹出一次（每会话一次）。
+- **每次访问只问一次**：某个会话处于 Auto review 且没有记录时，选择器会自动弹出。这份记忆是组件内的
+  状态、不是落盘的标记：每个会话每次页面加载问一次；刷新页面会再问一次（因为记录仍然缺失，仍然表示
+  「跟随」）。
 
 ## 升级 dsh
 
-`package.json` 里的 peer 是**精确**版本。升级 `dsh` 后，启动预检会发现版本不再匹配，并**自动停用本插件**
-（fail-safe：绝不会半加载），在标准错误输出：
+`package.json` 里的 peer 是**精确**版本。升级 `dsh` 后，版本不匹配是在 **bundle 准入**时被发现的：
+本包是 profile **bundle**（`package.json` 声明了 `dsh.bundle.patch`，所以它出现在 `dsh.profile.bundles`
+里），而 bundle 不是插件行，行级准入根本不会读它的 peer。不兼容的 bundle 会被**跳过**；跳过发生在它的层
+被装配之前，因此本包的 `cordis.patch.yml` 不参与装配、插件直接不存在——fail-safe，绝不会半加载。
+标准错误输出是：
 
 ```
-dsh: disabling profile plugin row "auto-review-plus": <reason>
+dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-review-plus@0.1.0 is incompatible with dsh <新的版本>: peerDependencies {...}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for dsh-auto-review-plus@0.1.0 on dsh <新的版本> with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.
 ```
+
+（`{...}` 代表完整的 `@deepseek-ai/dsh-*` peer 映射。）`dsh: disabling profile plugin row "…"` 是**另一条**
+兼容性消息：它属于行级准入，而后者只看装配产出的行。它不可能点到本包——bundle 被跳过时，那条 patch 从未
+插入 `auto-review-plus` 行——所以两条消息在构造上互斥。
 
 两种补救：
 
@@ -158,6 +173,7 @@ dsh: disabling profile plugin row "auto-review-plus": <reason>
   npx -y @deepseek-ai/dsh plugin --profile web revoke-version dsh-auto-review-plus@0.1.0 --dsh-version <新的-dsh-版本>
   ```
   `allow-version` 会先警告：允许不兼容的插件版本可能破坏应用或损坏数据。请在你接受该风险时再执行。
+  **bundle 准入同样会读这份豁免**，所以这一条命令也能清掉上面这条路径（警告文案本身就点名了这个命令）。
 - **改 peer 版本** —— 受支持的路径：更新 `package.json` 里的 `@deepseek-ai/dsh-*` 版本，执行
   `npm install && npm run build`，提交重新生成的 `lib/`，升版本、打 tag、重新安装。
 
@@ -193,10 +209,13 @@ preset 即将消失；不处于 Auto review 的会话不受影响。
   共享是不可能的：该包的 `client` 入口只导出插件的 `apply`/`inject`，不导出它自己的目录，共享就等于依赖
   它的非导出内部实现。作为已知成本接受。
 - **输入框席位是按优先级抢占的，不是预留的。** `conversation.input.permission` 是单占用 cell，本插件以
-  `priority: -1` 渲染。若第三方以更低优先级注册，会顶掉本控件；此时本插件的 fiber 起不来，官方控件继续
-  生效——属于优雅回退，但审查模型选择器就不可达了。
-- **状态不在会话日志里**（有意为之，见下），所以不要在 `dsh` 运行时删除
-  `$DSH_HOME/storages/auto_review_plus`。请先停掉 `dsh`，删除，再重启。
+  `priority: -1` 渲染。同一个 cell 上**不同优先级**的条目是共存的，且**最低的存活条目渲染**：因此第三方以
+  更低优先级（例如 `-2`）注册会**静默**赢得该 cell——既不是本控件渲染，也不是官方控件渲染，审查模型
+  选择器因此不可达。只有**恰好同优先级**的注册才会冲突——那一次会抛错，本插件的 fiber 起不来，官方控件
+  （默认优先级 `0`）继续渲染。两条路径都不会让应用崩溃，只有第一条会让选择器消失。
+- **不要在 `dsh` 运行时删除 `$DSH_HOME/storages/auto_review_plus`。** 运行中的进程读写的是域的内存表，
+  那份 per-record 目录只是它的持久化投影，所以在域存活时抽掉底层文件只会让下一次写入困惑。请先停掉
+  `dsh`，删除目录，再重启。（「这份状态不在会话日志里」是另一件事、也是有意的决定，见下。）
 
 ## 给贡献者：插件状态不得写成会话事件
 

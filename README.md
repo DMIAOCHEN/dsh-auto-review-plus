@@ -32,15 +32,19 @@ Upstream discussions this package answers:
 - <https://github.com/deepseek-ai/deepseek-harness/discussions/8670>
 - <https://github.com/deepseek-ai/deepseek-harness/discussions/8764>
 
-**This package is a stopgap.** When upstream ships the same behaviour, use upstream's and delete this one.
-The judgement is two criteria:
-
-- **A — session context:** an Auto review request carries the session id and the session's reasoning effort.
-- **B — reviewer choice:** which model reviews a session can be configured (ideally per session).
-
-If upstream ships **A** alone, this package's remaining value is **B**, so it still earns its place. If
-upstream ships **A and B**, this package is obsolete: [uninstall](#uninstall) it and let
+**This package is a stopgap, and the exit rule is explicit.** As soon as **either** upstream discussion
+lands a fix and the official review request carries the `sessionId` and the session's reasoning effort,
+this package should be **deprecated**: [uninstall](#uninstall) it and let
 `@deepseek-ai/dsh-experimental-auto-review` own the preset again.
+
+- **Exit criterion (decides deprecation):** an official Auto review request carries the session id and the
+  session's own reasoning effort. The project spec fixes this as the criterion, and it is sufficient on its
+  own — there is nothing else to wait for.
+- **Secondary consideration (does not decide deprecation):** whether the reviewing model can be configured
+  per session. If that is still missing once the criterion above is met, the only question left is whether
+  to keep a forked picker — *not* whether to keep this package installed. Leaving it installed keeps its
+  `disabled: true` patch in `dsh.profile.bundles`, which would switch **off** the official Auto review that
+  upstream has just fixed.
 
 ## Requirements
 
@@ -74,6 +78,10 @@ npx -y @deepseek-ai/dsh plugin --profile web add dsh-auto-review-plus@latest --r
 Do **not** use `dsh plugin --profile web add .`: a directory dependency rewrites the profile's dependency
 layout in place. This project is always installed from a tarball or a git source.
 
+> **No tag exists yet.** The repository has no release tag until the maintainers cut `v0.1.0` — `git tag -l`
+> is empty today — so the pinned `#v0.1.0` command fails until then. Use the untagged GitHub command or a
+> local tarball in the meantime; see the release checklist before you rely on the pinned form.
+
 Then:
 
 1. **Fully restart `dsh web`.** Profile layers are composed at startup only — a running process keeps the
@@ -101,7 +109,8 @@ A patch can only disable a row that the composition already declares, and a late
 `dsh.profile.bundles`** — our patch layer is applied *after* it. `dsh plugin add` appends a newly installed
 bundle to the end of that array, so the default order is already correct. The list lives in
 `$DSH_HOME/profiles/web/package.json` (default `$DSH_HOME` is `~/.dsh`) and a healthy install looks like
-this (only the relevant field shown):
+this (the manifest is elided: other bundles such as `dsh-better-sidebar`, and everything outside `dsh`, are
+not shown):
 
 ```json
 {
@@ -151,18 +160,27 @@ Semantics:
   model supports. The effort actually sent with a review is the session's own effort, or — when the session
   pins none — the level configured as `fallbackReasoningEffort`, applied only if the review route really
   offers it.
-- **Asked once.** The first time a session is in Auto review without a record, the chooser also opens by
-  itself, once per session.
+- **Asked once per visit.** The first time a session is in Auto review without a record, the chooser also
+  opens by itself. That memory is component state, not a stored flag: one question per session per page
+  load. Reloading the page asks again, because the missing record still means "follow".
 
 ## Upgrading dsh
 
-The peers in `package.json` are pinned to an **exact** harness version. After a `dsh` upgrade the startup
-preflight sees the mismatch and **disables this plugin by itself** (fail-safe: never a half-loaded plugin),
-printing on stderr:
+The peers in `package.json` are pinned to an **exact** harness version. After a `dsh` upgrade the mismatch
+is caught at **bundle admission**: this package is a profile *bundle* (its `package.json` declares
+`dsh.bundle.patch`, which is why it is listed in `dsh.profile.bundles`), and a bundle is not a plugin row,
+so the row-level admission never reads its peers. An incompatible bundle is **skipped**, and because the
+skip happens before its layers are composed, this package's `cordis.patch.yml` never runs and the plugin is
+simply absent — fail-safe, never half-loaded. The startup diagnostic on stderr is:
 
 ```
-dsh: disabling profile plugin row "auto-review-plus": <reason>
+dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-review-plus@0.1.0 is incompatible with dsh <new>: peerDependencies {...}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for dsh-auto-review-plus@0.1.0 on dsh <new> with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.
 ```
+
+(`{...}` stands for the full `@deepseek-ai/dsh-*` peer map.) `dsh: disabling profile plugin row "…"` is the
+*other* compatibility message: it belongs to the row-level admission, which only sees rows the composition
+produced. It cannot name this package — when the bundle is skipped its patch never contributes the
+`auto-review-plus` row — so the two messages are mutually exclusive by construction.
 
 Two remedies:
 
@@ -174,7 +192,8 @@ Two remedies:
   npx -y @deepseek-ai/dsh plugin --profile web revoke-version dsh-auto-review-plus@0.1.0 --dsh-version <new-dsh-version>
   ```
   `allow-version` warns before it writes: allowing an incompatible plugin version can break the application
-  or corrupt data. Only do it when you accept that.
+  or corrupt data. Only do it when you accept that. The exemption is read by **bundle admission** too, so the
+  same grant clears this path (the warning above even names the command).
 - **Move the pins** — the supported path: update the `@deepseek-ai/dsh-*` versions in `package.json`, run
   `npm install && npm run build`, commit the regenerated `lib/`, bump the version, tag it, and reinstall.
 
@@ -214,11 +233,17 @@ loses the pinned reviewer models.
   package's non-exported internals — its `client` entry exports only the plugin's `apply`/`inject`, not its
   directory — so this is accepted as a known cost.
 - **The composer slot is claimed by priority, not reserved.** `conversation.input.permission` is a
-  single-occupant cell and this plugin renders at `priority: -1`. A third party registering at a lower
-  priority would displace this control; this plugin's fiber then fails to start and the shipped control
-  stays in place — a graceful fallback, but the reviewer picker becomes unreachable.
-- **State is not in the session log** (deliberately, see below), so do not delete
-  `$DSH_HOME/storages/auto_review_plus` while `dsh` is running. Stop it, delete, restart.
+  single-occupant cell and this plugin renders at `priority: -1`. Several entries at *distinct* priorities
+  coexist in one cell and the **lowest live entry renders**, so a third party registering at a lower
+  priority (say `-2`) silently wins the cell: neither this control nor the shipped one renders, and the
+  reviewer picker becomes unreachable. Only a registration at the **exact same** priority collides — that
+  one throws, this plugin's fiber does not start, and the shipped control (default priority `0`) keeps
+  rendering. Neither path crashes the app; only the first hides the picker.
+- **Do not delete `$DSH_HOME/storages/auto_review_plus` while `dsh` is running.** The domain's in-memory
+  table is what the running process reads and writes, and the per-record directory is only its persisted
+  projection, so removing files underneath a live domain only confuses the next write. Stop `dsh`, delete
+  the directory, restart. (That this state is deliberately *not* in the session log is a separate decision,
+  see below.)
 
 ## For contributors: plugin state must never be written as session events
 

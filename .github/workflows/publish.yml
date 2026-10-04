@@ -55,6 +55,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          # `registry-url` makes setup-node write a user `.npmrc` holding a
+          # `//registry.npmjs.org/:_authToken=${…}` line for an environment
+          # variable this workflow deliberately never sets (the variable name is
+          # on the generated line itself). npm substitutes the literal
+          # placeholder for an undefined variable, and how npm >= 11.5.1's OIDC
+          # path reacts to that literal is NOT verified here (no npm 11 was
+          # available when this landed). If the first real publish fails with
+          # 401/EOTP, the minimal fix is to delete this one line — Trusted
+          # Publishing needs no registry-url, and `--access public` is passed
+          # explicitly below.
           registry-url: https://registry.npmjs.org
 
       # Node 22 ships npm 10.9.8, which cannot exchange an OIDC token at all.

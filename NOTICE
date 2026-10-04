@@ -8,7 +8,8 @@ This package is a modified derivative of works from the DeepSeek Harness project
   - packages/client/ui-permission-presets        → src/client/PermissionControl.tsx (ported)
   - locale strings from the same packages        → locale/en.json, locale/zh.json
 
-Modifications: the review request carries the session id and reasoning effort,
-adds a configurable fallback reasoning level, adds a session-scoped reviewer
-route (session event + projection) with a client picker, and shadows the
-permission slot to host that picker.
+Modifications: the review request carries the session id and the session's
+reasoning effort, adds a configurable fallback reasoning level, adds a
+session-scoped reviewer route with a client picker (stored in a storage domain,
+one record per session, never as a session event), and shadows the permission
+slot to host that picker.
