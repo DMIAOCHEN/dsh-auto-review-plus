@@ -35,7 +35,7 @@
 | `cordis.patch.yml` | 停用官方 `auto-review` 行 + 插入 `auto-review-plus` 行 |
 | `src/index.ts` | 宿主半入口：注册 preset、前置审查监听器、卸载迁移 |
 | `src/review.ts` | 审查请求构造与响应解析（修复两处 + 回退 + 诊断） |
-| `src/reviewer-route.ts` | 会话级审查路由：事件声明、projection、读写 |
+| `src/reviewer-route.ts` | 会话级审查路由：**storage domain**（域 spec + 表切片 + 同步读/异步写辅助） |
 | `src/remote.ts` | 暴露给客户端半的 Remote API（provider/model/能力/路由） |
 | `src/client/index.tsx` | 客户端半入口：遮蔽权限槽 |
 | `src/client/PermissionControl.tsx` | 权限控件（chip + 菜单 + 确认弹框），移植官方并加模型选择器 |
@@ -120,26 +120,28 @@ coverage/
     "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
     "@deepseek-ai/dsh-permission-presets": "0.2.0-rc.2",
     "@deepseek-ai/dsh-session": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-session-projection": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-storage-domain": "0.2.0-rc.2",
     "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
     "@deepseek-ai/dsh-user-approval": "0.2.0-rc.2"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-util-values": "0.2.0-rc.2"
+    "@deepseek-ai/dsh-util-values": "0.2.0-rc.2",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "0.2.0-rc.2",
     "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
     "@deepseek-ai/dsh-session": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-session-projection": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-storage": "0.2.0-rc.2",
     "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
     "@deepseek-ai/dsh-permission-presets": "0.2.0-rc.2",
     "@deepseek-ai/cordis": "~4.0.4",
-    "@types/react": "^19.0.0",
-    "react": "^19.0.0",
-    "tsdown": "^0.9.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "react": "19.3.0",
+    "tsdown": "0.9.9",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
   },
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },
@@ -805,7 +807,7 @@ git commit -m "Add session-scoped reviewer route state"
 - Test: 手工端到端验证（见 Step 5–6）
 
 **Interfaces:**
-- Consumes: Task 2/3 的 `buildReviewRequest`、`readReviewDecision`、`resolveReviewReasoning`；Task 4 的 `reviewerRoute`、`autoReviewPlusRouteProjectionDefinition`
+- Consumes: Task 2/3 的 `buildReviewRequest`、`readReviewDecision`、`resolveReviewReasoning`；Task 4（重做版）的 `autoReviewPlusDomainSpec`、`ReviewerRouteTable`、`reviewerRoute(table, id)`（同步）、`setReviewerRoute(table, id, route|null)`（异步）
 - Produces: 一个可加载的宿主半：注册 `auto` preset、拦截每次工具调用、卸载时迁移存活 Auto 会话
 
 **移植约定**：官方宿主半是单文件 `packages/experimental/auto-review/src/index.ts`（约 740 行，纯 TS，无同包兄弟模块）。**逐字复制该文件**到 `src/index.ts`，然后只应用下面列出的差异点；未列出的代码不得改动。
@@ -1252,6 +1254,6 @@ Expected: `publish` 工作流成功，npm 上出现 `dsh-auto-review-plus@0.1.0`
 | 9 | Task 7 | Remote 方法的挂载方式以复制进来的宿主半实际结构为准（官方 auto-review 未必是 class-with-`this.ctx`） |
 | 10 | Task 0/Task 1 | `npm install` 在本沙箱需 `--ignore-scripts` 且缓存指向工作区内目录 |
 | 11 | Task 1 Step 9 | `*.tgz` 加入 `.gitignore` |
-| 12 | Task 4 | `zod` 依赖用**精确 `4.6.5`**（简报原写 `^3.23.0`）：`@deepseek-ai/dsh-session-projection` 自身依赖 zod 4，`ProjectionDefinition.stateSchema` 的类型即 zod 的 `ZodType`，装 v3 会造成双实例类型身份不匹配、typecheck 必失败；且本项目无 lockfile、依赖一律精确固定 |
+| 12 | Task 4 | `zod` 依赖用**精确 `4.6.5`** 且放 `dependencies`（简报原写 `^3.23.0`）：`@deepseek-ai/dsh-storage-domain` 自身依赖 zod `^4.4.3`，其 `domainTable(schema: ZodType<V>)`/`valueSchema` 的类型即 zod 的 `ZodType`，装 v3 会造成双实例类型身份不匹配、typecheck 必失败；且本项目无 lockfile、依赖一律精确固定 |
 
 
