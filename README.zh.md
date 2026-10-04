@@ -55,13 +55,13 @@
 
 ```bash
 # GitHub，钉住发布 tag（推荐：可复现）
-npx -y @deepseek-ai/dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus#v0.1.0
+npx -y @deepseek-ai/dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus#v0.1.1
 
 # GitHub，跟随默认分支（每次推送都会漂移）
 npx -y @deepseek-ai/dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus
 
 # 本地 tarball，在仓库根目录执行
-npm pack && npx -y @deepseek-ai/dsh plugin --profile web add ./dsh-auto-review-plus-0.1.0.tgz
+npm pack && npx -y @deepseek-ai/dsh plugin --profile web add ./dsh-auto-review-plus-0.1.1.tgz
 
 # npm —— 尚未发布：首发 bootstrap 之前该命令会 404
 npx -y @deepseek-ai/dsh plugin --profile web add dsh-auto-review-plus@latest --registry=https://registry.npmjs.org
@@ -70,9 +70,9 @@ npx -y @deepseek-ai/dsh plugin --profile web add dsh-auto-review-plus@latest --r
 **不要**用 `dsh plugin --profile web add .`：目录依赖会就地改写 profile 的依赖布局。本项目一律从
 tarball 或 git 源安装。
 
-> **目前还没有任何 tag。** 在维护者切出 `v0.1.0` 之前，仓库没有发布 tag（现在 `git tag -l` 是空的），
-> 所以上面那条钉版本的 `#v0.1.0` 命令在此之前会失败。请先用不带 tag 的 GitHub 命令或本地 tarball；
-> 发布清单见下文。
+> **tag 状态。** `v0.1.0` 是首个发布（它的 tag 与 GitHub Release 都已存在）。当前 checkout 的版本是
+> `0.1.1`，所以上面那条钉版本的命令需要 `v0.1.1` tag：在维护者推送它之前，请用不带 tag 的 GitHub 命令
+> 或本地 tarball。发布清单见下文。
 
 然后：
 
@@ -164,7 +164,7 @@ auto-review-plus: cannot take over the "auto" preset — the official @deepseek-
 标准错误输出是：
 
 ```
-dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-review-plus@0.1.0 is incompatible with dsh <新的版本>: peerDependencies {...}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for dsh-auto-review-plus@0.1.0 on dsh <新的版本> with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.
+dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-review-plus@0.1.1 is incompatible with dsh <新的版本>: peerDependencies {...}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for dsh-auto-review-plus@0.1.1 on dsh <新的版本> with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.
 ```
 
 （`{...}` 代表完整的 `@deepseek-ai/dsh-*` peer 映射。）`dsh: disabling profile plugin row "…"` 是**另一条**
@@ -175,9 +175,9 @@ dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-revi
 
 - **给这个精确版本开豁免** —— 最快，沿用现有构建。豁免是**两端都精确**的：一个包版本 + 一个 dsh 版本。
   ```bash
-  npx -y @deepseek-ai/dsh plugin --profile web allow-version dsh-auto-review-plus@0.1.0 --dsh-version <新的-dsh-版本> --accept-risk
+  npx -y @deepseek-ai/dsh plugin --profile web allow-version dsh-auto-review-plus@0.1.1 --dsh-version <新的-dsh-版本> --accept-risk
   npx -y @deepseek-ai/dsh plugin --profile web version-exemptions
-  npx -y @deepseek-ai/dsh plugin --profile web revoke-version dsh-auto-review-plus@0.1.0 --dsh-version <新的-dsh-版本>
+  npx -y @deepseek-ai/dsh plugin --profile web revoke-version dsh-auto-review-plus@0.1.1 --dsh-version <新的-dsh-版本>
   ```
   `allow-version` 会先警告：允许不兼容的插件版本可能破坏应用或损坏数据。请在你接受该风险时再执行。
   **bundle 准入同样会读这份豁免**，所以这一条命令也能清掉上面这条路径（警告文案本身就点名了这个命令）。
@@ -190,7 +190,7 @@ dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-revi
 在跑旧代码，而且没有任何报错。因此版本号必须一直往前走：
 
 - **开发期**：递增 `-dev.N` 后缀（`0.1.0-dev.1` → `0.1.0-dev.2` …），让每次重建都是不同版本。
-- **正式发布**：递增版本本身（`0.1.0` → `0.1.1`）并打 tag。
+- **正式发布**：递增版本本身（`0.1.1` → `0.1.2`）并打 tag。
 
 ### 发布（维护者）
 

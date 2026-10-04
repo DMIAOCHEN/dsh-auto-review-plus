@@ -39,6 +39,18 @@ jobs:
       - name: Verify the manifest entry points and the packed file list
         run: node .github/scripts/verify-pack.mjs
 
+      # publish.yml upgrades npm before it runs the same guard, so a `npm pack
+      # --json` shape change in a newer npm would only surface on a release tag —
+      # and it did: npm 11 returns an object KEYED BY PACKAGE NAME, the guard
+      # rejected a good report, and the v0.1.0 release went red while this job
+      # (Node 22's bundled npm 10) stayed green. Run the guard once more under the
+      # very npm the release uses, and print the version so the log proves which.
+      - name: Verify the pack guard under the publish npm version
+        run: |
+          npm install -g npm@latest
+          npm --version
+          node .github/scripts/verify-pack.mjs
+
       # The drift check compares artifacts to a fresh build, so it cannot tell a
       # valid artifact from a broken one. This reads the COMMITTED client bundle
       # and rejects CSS class names that are not legal identifiers — a class

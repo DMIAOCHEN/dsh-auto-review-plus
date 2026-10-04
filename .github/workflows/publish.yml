@@ -3,7 +3,7 @@
 # Publishing (OIDC).
 #
 # Distribution is GitHub-first: `lib/` is committed, so
-# `dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus#v0.1.0`
+# `dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus#v0.1.1`
 # installs straight from the tag with no build step on the user's machine.
 #
 # npm publishing is OPT-IN and OFF by default. Pushing the release tag is the
@@ -16,7 +16,7 @@
 #
 # ⚠️ THE FIRST RELEASE IS A MANUAL BOOTSTRAP, and the switch goes on AFTER it.
 # npm's Trusted Publishing is package-scoped, and npm refuses to CREATE a package
-# from an OIDC-only publish, so this workflow cannot publish `0.1.0` before the
+# from an OIDC-only publish, so this workflow cannot publish `0.1.1` before the
 # name exists. A human does it once with a real credential:
 #
 #   1. `npm publish --access public` from a clean tag checkout (one time only).

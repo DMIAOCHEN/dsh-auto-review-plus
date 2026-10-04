@@ -63,13 +63,13 @@ Pick one — and keep the profile name (`web` is the GUI profile) consistent wit
 
 ```bash
 # GitHub, pinned to the release tag (recommended: reproducible)
-npx -y @deepseek-ai/dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus#v0.1.0
+npx -y @deepseek-ai/dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus#v0.1.1
 
 # GitHub, following the default branch (drifts with every push)
 npx -y @deepseek-ai/dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus
 
 # Local tarball, from a checkout at the repository root
-npm pack && npx -y @deepseek-ai/dsh plugin --profile web add ./dsh-auto-review-plus-0.1.0.tgz
+npm pack && npx -y @deepseek-ai/dsh plugin --profile web add ./dsh-auto-review-plus-0.1.1.tgz
 
 # npm — not published yet: this command fails with 404 until the first release is bootstrapped
 npx -y @deepseek-ai/dsh plugin --profile web add dsh-auto-review-plus@latest --registry=https://registry.npmjs.org
@@ -78,9 +78,9 @@ npx -y @deepseek-ai/dsh plugin --profile web add dsh-auto-review-plus@latest --r
 Do **not** use `dsh plugin --profile web add .`: a directory dependency rewrites the profile's dependency
 layout in place. This project is always installed from a tarball or a git source.
 
-> **No tag exists yet.** The repository has no release tag until the maintainers cut `v0.1.0` — `git tag -l`
-> is empty today — so the pinned `#v0.1.0` command fails until then. Use the untagged GitHub command or a
-> local tarball in the meantime; see the release checklist before you rely on the pinned form.
+> **Tag status.** `v0.1.0` is the first release (its tag and GitHub Release exist). This checkout is version
+> `0.1.1`, so the pinned command above needs the `v0.1.1` tag: until the maintainers push it, use the
+> untagged GitHub command or a local tarball. See the release checklist before relying on the pinned form.
 
 Then:
 
@@ -185,7 +185,7 @@ skip happens before its layers are composed, this package's `cordis.patch.yml` n
 simply absent — fail-safe, never half-loaded. The startup diagnostic on stderr is:
 
 ```
-dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-review-plus@0.1.0 is incompatible with dsh <new>: peerDependencies {...}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for dsh-auto-review-plus@0.1.0 on dsh <new> with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.
+dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-review-plus@0.1.1 is incompatible with dsh <new>: peerDependencies {...}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for dsh-auto-review-plus@0.1.1 on dsh <new> with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.
 ```
 
 (`{...}` stands for the full `@deepseek-ai/dsh-*` peer map.) `dsh: disabling profile plugin row "…"` is the
@@ -198,9 +198,9 @@ Two remedies:
 - **Exempt this exact version** — fastest, keeps the current build. The approval is exact on both sides:
   one package version, one `dsh` version.
   ```bash
-  npx -y @deepseek-ai/dsh plugin --profile web allow-version dsh-auto-review-plus@0.1.0 --dsh-version <new-dsh-version> --accept-risk
+  npx -y @deepseek-ai/dsh plugin --profile web allow-version dsh-auto-review-plus@0.1.1 --dsh-version <new-dsh-version> --accept-risk
   npx -y @deepseek-ai/dsh plugin --profile web version-exemptions
-  npx -y @deepseek-ai/dsh plugin --profile web revoke-version dsh-auto-review-plus@0.1.0 --dsh-version <new-dsh-version>
+  npx -y @deepseek-ai/dsh plugin --profile web revoke-version dsh-auto-review-plus@0.1.1 --dsh-version <new-dsh-version>
   ```
   `allow-version` warns before it writes: allowing an incompatible plugin version can break the application
   or corrupt data. Only do it when you accept that. The exemption is read by **bundle admission** too, so the
@@ -216,7 +216,7 @@ versions always move:
 
 - **Development:** bump the `-dev.N` suffix (`0.1.0-dev.1` → `0.1.0-dev.2` …) so every rebuild is a
   distinct version.
-- **Release:** bump the version itself (`0.1.0` → `0.1.1`) and tag the release.
+- **Release:** bump the version itself (`0.1.1` → `0.1.2`) and tag the release.
 
 ### Releasing (maintainers)
 

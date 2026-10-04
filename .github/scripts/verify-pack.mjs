@@ -68,15 +68,37 @@ if (report === undefined) {
 }
 
 const packed = JSON.parse(raw)
-// npm prints a one-element array (npm >= 7); tolerate a bare object so an npm that
-// changed shape fails with this message, not a TypeError.
-const entry = Array.isArray(packed) ? packed[0] : packed
-if (entry === undefined || !Array.isArray(entry.files)) {
-  console.error(`::error::unexpected \`npm pack --json\` shape: ${JSON.stringify(packed).slice(0, 200)}`)
+/**
+ * Normalize every `npm pack --json` shape into a list of pack results.
+ *
+ * npm has shipped three of them, and this guard runs under two npm majors at
+ * once (CI uses the bundled npm 10, the release workflow upgrades to npm 11):
+ *   - an array of results (npm 7 through 10);
+ *   - one result object carrying `files` (a single-package pack);
+ *   - an object KEYED BY PACKAGE NAME whose values are the results (npm 11) —
+ *     this one failed a real release: the guard saw no `files` at the top level
+ *     and rejected a perfectly good pack report.
+ * Anything else is reported below; nothing is guessed.
+ * @param parsed - the parsed report.
+ * @returns the pack results found, or an empty list when the shape is unknown.
+ */
+function packResults(parsed) {
+  if (Array.isArray(parsed)) return parsed
+  if (parsed === null || typeof parsed !== 'object') return []
+  if (Array.isArray(parsed.files)) return [parsed]
+  return Object.values(parsed)
+}
+const results = packResults(packed)
+const usable = results.length > 0
+  && results.every(result => result !== null && typeof result === 'object' && Array.isArray(result.files))
+if (!usable) {
+  console.error(`::error::unexpected \`npm pack --json\` shape (expected an array of results, one result object, or an object keyed by package name): ${JSON.stringify(packed).slice(0, 200)}`)
   process.exit(1)
 }
-// Some npm versions list directories too; only files count here.
-const files = entry.files.map(item => item.path).filter(path => !path.endsWith('/')).sort()
+// Some npm versions list directories too; only files count here. The set covers a
+// multi-package report as well, where several results contribute paths.
+const files = [...new Set(results.flatMap(result => result.files.map(item => item.path)))]
+  .filter(path => !path.endsWith('/')).sort()
 
 const manifest = JSON.parse(readFileSync('package.json', 'utf8'))
 // Optional chaining on purpose: a manifest that lost an `exports` key must be
