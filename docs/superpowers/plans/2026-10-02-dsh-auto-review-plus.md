@@ -336,34 +336,54 @@ export function apply(_ctx: Context): void {
 }
 ```
 
-- [ ] **Step 5: 写 `cordis.patch.yml`**
+- [ ] **Step 5: 写 `cordis.patch.yml`（本任务只插入自己的行）**
 
 ```yaml
-- id: auto-review
-  disabled: true
+# Task 5 adds the `- id: auto-review` / `disabled: true` override when this
+# plugin actually takes over the `auto` preset; until then the official layer
+# stays active so the user's working Auto review is not broken mid-development.
 - insert:
     - id: auto-review-plus
       name: 'dsh-auto-review-plus'
 ```
 
-- [ ] **Step 6: 构建并本地安装**
+- [ ] **Step 6: 构建、打包并用 tarball 安装**
 
 ```bash
 npm run build
-npx -y @deepseek-ai/dsh plugin --profile web remove @deepseek-ai/dsh-experimental-auto-review
-npx -y @deepseek-ai/dsh plugin --profile web add .
+npm pack
+npx -y @deepseek-ai/dsh plugin --profile web add ./dsh-auto-review-plus-0.1.0.tgz
+npx -y @deepseek-ai/dsh plugin --profile web root
 ```
 
-Expected: `lib/index.js` 与 `lib/client.js` 生成；profile 的 `dsh.profile.bundles` 末尾出现 `dsh-auto-review-plus`。
+Expected: `lib/index.js` 与 `lib/client.js` 生成；`dsh plugin root` 显示 `dsh-auto-review-plus` 已启用；profile 的 `dsh.profile.bundles` 末尾出现它。**不要移除也不要停用官方 auto-review**——`auto` preset 的接管发生在 Task 5。
 
-- [ ] **Step 7: 在 GUI 中验证**
+必须用 tarball 而不是 `add .`：目录安装会产生 `link:` 依赖，把本仓库的 `node_modules`（含 react/tsdown/vitest 与 `@deepseek-ai/*` 的开发副本）暴露进 profile 的解析链，遮蔽运行安装自带的同名包。
+
+- [ ] **Step 7: 把构建与产物漂移校验补进 `ci.yml`**
+
+在 `npm test` 之后追加（这是计划全局约束「CI 必须校验产物与源码一致」的落点；Task 0 按裁定未包含这两步）：
+
+```yaml
+      - run: npm run build
+      - name: Verify committed artifacts match a fresh build
+        run: |
+          git diff --exit-code -- lib/index.js lib/client.js \
+            || { echo "::error::lib/ is stale — run 'npm run build' and commit the result"; exit 1; }
+```
+
+- [ ] **Step 8: 在 GUI 中验证**
 
 重启 `npx -y @deepseek-ai/dsh web`，打开 设置 → 通用：应看到一行文字 `dsh-auto-review-plus client half loaded`。
+
+可编程的旁证（在重启后执行）：`http://127.0.0.1:3080/plugins/` 下应能取到本包的客户端 bundle（具体路径按 `packages/client/modules/src/index.ts` 的路由拼装规则确定）。
 
 - **若成功**：记录构建方式（tsdown + 包装脚本），继续 Task 2。
 - **若失败**（`/plugins` 无该模块、浏览器报错、或 `lib/client.js` 契约不匹配）：改用退路——用 esbuild 直接产出 CJS 再走同一包装脚本；仍失败则**停止本计划并回报**，方案退回 spec §7.2 的另两个选项（fork 官方客户端包 / v1 先不做 UI）。
 
-- [ ] **Step 8: 提交**
+- [ ] **Step 9: 提交**
+
+先把 `*.tgz` 加入 `.gitignore`（`npm pack` 的产物不入库），再提交：
 
 ```bash
 git add -A
@@ -1211,4 +1231,23 @@ Expected: `publish` 工作流成功，npm 上出现 `dsh-auto-review-plus@0.1.0`
 - Task 7 的 Remote 方法名（`providers`/`models`/`modelInfo`/`reviewerRouteView`/`setReviewerRoute`）与其在 `ReviewerRoutePicker` 中的消费一致。
 
 **已知未决（实施时若发生需回报）**：Task 1 的客户端构建契约若不成立，客户端任务（Task 6、7）整体改为 spec §7.2 的退路方案，届时需重新评估计划而不是硬推。
+
+---
+
+## 控制者修订（实施期裁定，覆盖上文对应步骤）
+
+| # | 生效范围 | 修订 |
+|---|---|---|
+| 1 | Task 0 | `scripts.test` = `vitest run --passWithNoTests`（无测试文件时 vitest 默认判失败）；Task 2 起有真实测试后移除该 flag |
+| 2 | Task 0 `ci.yml` | 只含 checkout / setup-node / `npm install` / typecheck / test；**build 与产物漂移校验由 Task 1 Step 7 补回** |
+| 3 | Task 0 | 提交 `package-lock.json` → 由裁定 8 撤销 |
+| 4 | Task 1 Step 5/6 | 官方 `auto-review` 的停用与移除**推迟到 Task 5**（开发期间保持用户现有 Auto review 可用） |
+| 5 | Task 1 Step 6 | 安装改为 **tarball**（`npm pack` + `dsh plugin add <tgz>`），不用 `add .`（避免 `link:` 把仓库 `node_modules` 暴露进 profile 解析链） |
+| 6 | 全局 | 本机沙箱 **bash 不可用**、**vitest 不可运行**（`spawn EPERM`）；本地逻辑验证用 `node --experimental-strip-types` 直跑 TS，单测权威执行在 CI |
+| 7 | Task 0 | devDependencies 增加 `@types/node`（tsconfig 的 `"types": ["node"]` 需要） |
+| 8 | Task 0 | **不提交 lockfile**（镜像 URL 会把 CI 钉在第三方 registry），devDependencies 固定为精确版本；`.gitignore` 忽略 `package-lock.json` |
+| 9 | Task 7 | Remote 方法的挂载方式以复制进来的宿主半实际结构为准（官方 auto-review 未必是 class-with-`this.ctx`） |
+| 10 | Task 0/Task 1 | `npm install` 在本沙箱需 `--ignore-scripts` 且缓存指向工作区内目录 |
+| 11 | Task 1 Step 9 | `*.tgz` 加入 `.gitignore` |
+
 
