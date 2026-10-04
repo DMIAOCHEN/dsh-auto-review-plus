@@ -40,7 +40,7 @@ DeepSeek Harness 自带的实验性 `@deepseek-ai/dsh-experimental-auto-review`�
 | 作用域 | 仅当前会话；新会话回到"跟随会话模型" |
 | 重置入口 | 重开弹框并选"跟随当前会话模型"（不新增斜杠命令） |
 | 进入 Auto 时 | 若本会话尚未选择过，弹框自动出现一次（可直接关闭＝跟随） |
-| 分发 | v1 GitHub（产物入库），稳定后发 npm |
+| 分发 | v1 GitHub 立即可用（产物入库）；同时提供 tag 触发的 npm 发布流水线（首次发布由你打 tag 决定） |
 | 方案 | 遮蔽 `conversation.input.permission` 单槽，自建含模型选择的确认弹框 |
 
 ## 4. 架构
@@ -188,6 +188,35 @@ GUI 权限控件（本包，priority: -1 遮蔽官方 PermissionSelect）
 - 构建配置以官方 `tsdown.config.ts` + `--env.DSH_BUILD_FACE client` 为参考；若其依赖 monorepo 内部插件，退路是**手写 ModuleLoader 包装**包住 esbuild/tsdown 产物，并正确映射冻结模块表（React、cordis、`client-ui-primitives`、`client-ui-slots`、`client-locale` 等）；
 - **验证失败即回头重估方案**（退回 fork 官方客户端包，或 v1 先不做 UI），不硬撑。
 
+### 7.3 发布流水线（GitHub Actions → npm）
+
+两条工作流，均放在 `.github/workflows/`：
+
+**`ci.yml`（push / PR 触发）**
+
+1. `actions/checkout` + `actions/setup-node`（Node 22，`registry-url: https://registry.npmjs.org`）+ pnpm 安装；
+2. `npm run build` 构建宿主半与客户端半；
+3. **产物漂移校验**：把本次构建结果与仓库内已提交的 `lib/index.js`、`lib/client.js` 逐字节比较，不一致即失败——本包入库构建产物，必须保证"源码 ↔ 入库产物"永远同步；
+4. 类型检查与单元测试（若有）。
+
+**`publish.yml`（push tag `v*` 触发）**
+
+1. 同样的安装与构建步骤；
+2. **一致性校验**：tag 名（去掉前缀 `v`）必须等于 `package.json.version`，否则失败；
+3. **产物漂移校验**（同 `ci.yml`）；
+4. `npm publish --provenance --access public --registry=https://registry.npmjs.org`。
+
+**凭据二选一（含取舍）**
+
+| 方式 | 配置 | 取舍 |
+|---|---|---|
+| npm Trusted Publishing（OIDC，推荐） | 在 npm 该包的设置里登记本仓库与工作流文件名；工作流声明 `permissions: id-token: write` | 无长期令牌、发布自动带 provenance 证明；需在 npm 侧做一次性登记（首次发布前完成） |
+| 长期令牌 | 仓库 secret `NPM_TOKEN`（Granular Access Token，仅本包写权限），工作流用 `NODE_AUTH_TOKEN` | 配置最简单；但令牌需轮换、泄露风险更高 |
+
+**必须显式指定 registry**：`registry.npmmirror.com` 这类镜像是只读的，发布必须指向 `registry.npmjs.org`——工作流里显式写出，不依赖环境默认。
+
+**版本与 tag 约定**：包自身版本独立于 dsh（首版 `0.1.0`）；peers 仍钉 `0.2.0-rc.2`。dsh 升级时：改 peers → 重新构建产物 → 提交 → 打 tag → 流水线自动发布。
+
 ## 8. 测试与端到端验证清单
 
 1. 安装后启动：无 `failed to import`、无 `preset "auto" is already registered`，本包行激活；
@@ -209,6 +238,7 @@ GUI 权限控件（本包，priority: -1 遮蔽官方 PermissionSelect）
 | 版本耦合 | peers 钉 `0.2.0-rc.2`，dsh 升级触发兼容性校验 | 重建产物或申请精确版本豁免；README 写明升级步骤 |
 | 客户端产物格式变化 | 依赖 ModuleLoader 包装与冻结模块表 | 由 7.2 的 spike 早期暴露；格式变化时优先修包装层 |
 | 与官方插件冲突 | 单占用 preset、同名包遮蔽 | 4.2 的三个硬前置 + 启动诊断 |
+| 发布凭据与产物漂移 | npm 发布需凭据；入库产物可能落后于源码 | 7.3 的产物漂移校验与 tag↔version 校验；凭据方式二选一并在 README 写明 |
 
 **退出策略**：上游 #8670 / #8764 任一修复发布后，若官方审查请求已携带 `sessionId` 与会话思考级别，本包应被弃用；README 写明判断标准与卸载步骤。
 
@@ -221,13 +251,14 @@ GUI 权限控件（本包，priority: -1 遮蔽官方 PermissionSelect）
 
 ## 11. 实施顺序（交由 writing-plans 细化）
 
-1. 建仓库骨架与许可／署名文件；
+1. 建仓库骨架：许可／署名文件、`.gitattributes`（`* text=auto eol=lf`）、`.gitignore`；
 2. **客户端构建 spike**（决定后面走 UI 还是退回）；
 3. 宿主半：修复两处 + 健壮性 + 会话级路由状态 + Remote；
 4. 宿主半单元／端到端验证（清单 7、8、9）；
 5. 客户端半：遮蔽权限槽 + 含模型选择器的确认弹框 + 自动弹框一次 + i18n；
 6. 产物构建与入库，端到端验证清单全量回归（1–10）；
-7. README（安装、冲突处理、升级、退出策略）与仓库发布。
+7. CI 与发布流水线：`ci.yml`（构建 + 产物漂移校验）与 `publish.yml`（tag 触发，含 tag↔version 一致性校验、provenance、显式 registry）；
+8. README（安装、冲突处理、升级、退出策略）与首次发布（打 tag 走流水线）。
 
 ## 附录 A：证据索引
 
