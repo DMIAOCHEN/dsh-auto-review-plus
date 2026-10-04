@@ -642,7 +642,7 @@ git commit -m "Add capability-checked fallback reasoning for the reviewer"
 
 **Files:**
 - Create: `src/reviewer-route.ts`
-- Modify: `package.json`（`dependencies` 增加 `"zod": "^3.23.0"`）
+- Modify: `package.json`（`dependencies` 增加 `"zod": "4.6.5"`）
 - Test: `tests/reviewer-route.spec.ts`
 
 **Interfaces:**
