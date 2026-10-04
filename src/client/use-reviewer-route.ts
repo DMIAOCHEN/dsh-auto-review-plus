@@ -11,7 +11,7 @@
  * @module dsh-auto-review-plus/client/use-reviewer-route
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ReviewerRouteLoadFences } from './reviewer-route-chooser.ts'
+import { ReviewerRouteLoadFences, commitReviewerRouteProviders } from './reviewer-route-chooser.ts'
 import type {
   ReviewerModelView,
   ReviewerProviderView,
@@ -24,8 +24,14 @@ import type {
 export interface ReviewerRouteState {
   /** Host answer about the pinned and session routes, or null before one. */
   readonly view: ReviewerRouteView | null
-  /** Provider routes this host serves. */
+  /** Provider routes this host serves; empty until an answer arrives. */
   readonly providers: readonly ReviewerProviderView[]
+  /**
+   * Whether {@link providers} is a complete answer from the host. Set only once
+   * one arrives, so a pending (or superseded) read is never mistaken for a list
+   * that simply omits the pinned provider.
+   */
+  readonly providersLoaded: boolean
   /** Advertised models of {@link modelsProvider}; empty before one arrives. */
   readonly models: readonly ReviewerModelView[]
   /**
@@ -37,6 +43,11 @@ export interface ReviewerRouteState {
   readonly modelsProvider: string | null
   /** Reasoning efforts of the model currently chosen in the picker. */
   readonly reasoningEfforts: readonly string[]
+  /**
+   * Route whose efforts {@link reasoningEfforts} belongs to, or null. Set only
+   * once an answer arrives, for the same reason as {@link modelsProvider}.
+   */
+  readonly effortsRoute: ReviewerRouteValue | null
   /** Human-readable failure of the last read, or null. */
   readonly failure: string | null
   /** Load the provider list and the session's route. */
@@ -66,9 +77,11 @@ export function useReviewerRoute(
 ): ReviewerRouteState {
   const [view, setView] = useState<ReviewerRouteView | null>(null)
   const [providers, setProviders] = useState<readonly ReviewerProviderView[]>([])
+  const [providersLoaded, setProvidersLoaded] = useState(false)
   const [models, setModels] = useState<readonly ReviewerModelView[]>([])
   const [modelsProvider, setModelsProvider] = useState<string | null>(null)
   const [reasoningEfforts, setReasoningEfforts] = useState<readonly string[]>([])
+  const [effortsRoute, setEffortsRoute] = useState<ReviewerRouteValue | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   // The injected face is rebuilt by the slot host on every render, so the
   // loaders must not depend on its identity; the ref carries the live one.
@@ -81,9 +94,11 @@ export function useReviewerRoute(
     fences.current.invalidateAll()
     const current = fences.current.start('answer')
     setFailure(null)
+    setProvidersLoaded(false)
     setModels([])
     setModelsProvider(null)
     setReasoningEfforts([])
+    setEffortsRoute(null)
     void apiRef.current.view(sessionId).then(
       (next) => { if (current()) setView(next) },
       (error: unknown) => {
@@ -93,8 +108,15 @@ export function useReviewerRoute(
       },
     )
     void apiRef.current.providers().then(
-      (next) => { if (current()) setProviders(next) },
-      (error: unknown) => { if (current()) setFailure(messageOf(error)) },
+      (next) => commitReviewerRouteProviders(current(), next, (list) => {
+        setProviders(list)
+        setProvidersLoaded(true)
+      }),
+      (error: unknown) => {
+        if (!current()) return
+        setProvidersLoaded(false)
+        setFailure(messageOf(error))
+      },
     )
   }, [sessionId])
 
@@ -113,6 +135,7 @@ export function useReviewerRoute(
     // let an empty (still loading) list read as "this model is unavailable".
     setModelsProvider(null)
     setReasoningEfforts([])
+    setEffortsRoute(null)
     void apiRef.current.models(provider).then(
       (next) => {
         if (!current()) return
@@ -131,16 +154,26 @@ export function useReviewerRoute(
   const selectRoute = useCallback((route: ReviewerRouteValue): void => {
     const current = fences.current.start('efforts')
     setReasoningEfforts([])
+    setEffortsRoute(null)
     void apiRef.current.modelInfo(route.provider, route.model).then(
       // A capability read that fails is not a reason to refuse the route: the
-      // host validates it on write, and the chooser then reports "no efforts".
-      (info) => { if (current()) setReasoningEfforts(info.reasoningEfforts) },
-      () => { if (current()) setReasoningEfforts([]) },
+      // host validates it on write, and the chooser then reports no efforts for
+      // a route it could not interrogate.
+      (info) => {
+        if (!current()) return
+        setReasoningEfforts(info.reasoningEfforts)
+        setEffortsRoute(route)
+      },
+      () => {
+        if (!current()) return
+        setReasoningEfforts([])
+        setEffortsRoute(route)
+      },
     )
   }, [])
 
   return {
-    view, providers, models, modelsProvider, reasoningEfforts, failure,
+    view, providers, providersLoaded, models, modelsProvider, reasoningEfforts, effortsRoute, failure,
     reload, selectProvider, selectRoute,
   }
 }

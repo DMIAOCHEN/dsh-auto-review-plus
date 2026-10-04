@@ -45,7 +45,8 @@ import {
 } from './presentation.ts'
 import type { ReviewerRouteApi, ReviewerRouteValue, ReviewerRouteView } from './remote.ts'
 import {
-  planReviewerRouteAdoption, reviewerRouteChooserFailure, runReviewerRouteAdoption,
+  ReviewerRouteAttempt, planReviewerRouteAdoption, reviewerRouteChooserFailure,
+  runReviewerRouteAdoption,
 } from './reviewer-route-chooser.ts'
 import { ReviewerRouteDialog } from './ReviewerRouteDialog.tsx'
 import { ReviewerRoutePrompts, shouldPromptReviewerRoute } from './reviewer-route-prompt.ts'
@@ -124,6 +125,8 @@ export function PermissionControl({
   const adoptedView = useRef<ReviewerRouteView | null>(null)
   /** Whether the person already edited the chooser in this opening. */
   const reviewerEdited = useRef(false)
+  /** In-flight confirmations a closed dialog must be able to invalidate. */
+  const reviewerAttempt = useRef(new ReviewerRouteAttempt())
   const autoActive = selection?.currentValue === AUTO_REVIEW
   // Loaded while a chooser is on screen: the Auto risk gate opens before the
   // host has answered, the automatic prompt only opens after it has.
@@ -232,6 +235,10 @@ export function PermissionControl({
   }
 
   const closeConfirmation = (): void => {
+    // Closing invalidates any confirmation still in flight: a settlement that
+    // arrives after this must change nothing (never switch the preset the
+    // person just declined).
+    reviewerAttempt.current.cancel()
     setAcknowledged(false)
     setConfirmation(null)
   }
@@ -295,8 +302,10 @@ export function PermissionControl({
   }
 
   const closeReviewerPrompt = (): void => {
-    // Closing writes nothing, and either way the session is not asked again by
-    // itself: this memory is per control instance, not per pin.
+    // Closing writes nothing, invalidates a prompt whose write is still in
+    // flight, and either way the session is not asked again by itself: this
+    // memory is per control instance, not per pin.
+    reviewerAttempt.current.cancel()
     reviewerPrompts.current.answer(sessionId)
     setReviewerWriteFailure(null)
     setReviewerPrompt(false)
@@ -306,10 +315,16 @@ export function PermissionControl({
     // The session is marked answered BEFORE the write settles: the automatic
     // prompt is a one-time question, and the host's projection needs a moment
     // to carry the new pin back. A failed write keeps this dialog open with the
-    // failure on screen instead of closing as if it had stored something.
+    // failure on screen instead of closing as if it had stored something, and a
+    // dialog closed meanwhile takes the settlement with it.
     reviewerPrompts.current.answer(sessionId)
+    const accepted = reviewerAttempt.current.begin()
     void writeReviewerRoute(reviewerDraft).then(
-      () => { acceptReviewerWrite(); setReviewerPrompt(false) },
+      () => {
+        if (!accepted()) return
+        acceptReviewerWrite()
+        setReviewerPrompt(false)
+      },
       () => undefined,
     )
   }
@@ -322,12 +337,20 @@ export function PermissionControl({
     }
     const draft = reviewerDraft
     reviewerPrompts.current.answer(sessionId)
+    const accepted = reviewerAttempt.current.begin()
     // Pin first, then switch the preset, so the automatic prompt finds a durable
     // answer. The dialog stays up until the write settles: the person chose a
     // reviewer model IN this dialog, so a failed write must be visible (and
     // retryable) instead of enabling Auto as if the choice had been stored.
+    // Cancel stays available while the write runs, and cancelling it discards
+    // this settlement — the preset is never switched after the dialog closed.
     void writeReviewerRoute(draft).then(
-      () => { acceptReviewerWrite(); closeConfirmation(); submit(id) },
+      () => {
+        if (!accepted()) return
+        acceptReviewerWrite()
+        closeConfirmation()
+        submit(id)
+      },
       () => undefined,
     )
   }
@@ -401,9 +424,11 @@ export function PermissionControl({
           value={reviewerDraft}
           sessionRoute={reviewerRouteState.view?.sessionRoute ?? null}
           providers={reviewerRouteState.providers}
+          providersLoaded={reviewerRouteState.providersLoaded}
           models={reviewerRouteState.models}
           modelsProvider={reviewerRouteState.modelsProvider}
           reasoningEfforts={reviewerRouteState.reasoningEfforts}
+          effortsRoute={reviewerRouteState.effortsRoute}
           t={t}
           onProviderChange={reviewerRouteState.selectProvider}
           onChange={changeReviewerDraft}
@@ -440,9 +465,11 @@ export function PermissionControl({
         value={reviewerDraft}
         sessionRoute={reviewerRouteState.view?.sessionRoute ?? null}
         providers={reviewerRouteState.providers}
+        providersLoaded={reviewerRouteState.providersLoaded}
         models={reviewerRouteState.models}
         modelsProvider={reviewerRouteState.modelsProvider}
         reasoningEfforts={reviewerRouteState.reasoningEfforts}
+        effortsRoute={reviewerRouteState.effortsRoute}
         t={t}
         onProviderChange={reviewerRouteState.selectProvider}
         onChange={changeReviewerDraft}

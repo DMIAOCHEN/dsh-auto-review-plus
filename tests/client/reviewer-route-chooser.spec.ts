@@ -1,8 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  ReviewerRouteAttempt,
   ReviewerRouteLoadFences,
+  commitReviewerRouteProviders,
   planReviewerRouteAdoption,
   reviewerRouteChooserFailure,
+  reviewerRouteEffortsLoaded,
+  reviewerRouteOptionState,
   runReviewerRouteAdoption,
 } from '../../src/client/reviewer-route-chooser.ts'
 import type { ReviewerRouteView } from '../../src/client/remote.ts'
@@ -123,5 +127,93 @@ describe('ReviewerRouteLoadFences', () => {
     expect(efforts()).toBe(false)
     expect(answer()).toBe(false)
     expect(fences.start('answer')()).toBe(true)
+  })
+})
+
+describe('reviewerRouteOptionState', () => {
+  it('calls a value with no arrived list pending, never unavailable', () => {
+    // Fix round 2: `providers` arrives from its own call, so for one round trip
+    // a pinned provider has no list at all. That is "loading", not a claim that
+    // the host dropped the route.
+    expect(reviewerRouteOptionState({ ids: [], loaded: false, value: 'zai' })).toBe('pending')
+  })
+
+  it('calls a value missing from an ARRIVED list unavailable', () => {
+    expect(reviewerRouteOptionState({ ids: ['opencode-go'], loaded: true, value: 'zai' })).toBe('absent')
+  })
+
+  it('calls a listed value listed', () => {
+    expect(reviewerRouteOptionState({ ids: ['zai'], loaded: true, value: 'zai' })).toBe('listed')
+  })
+
+  it('treats the explicit default as listed even with no list', () => {
+    expect(reviewerRouteOptionState({ ids: [], loaded: false, value: '' })).toBe('listed')
+  })
+})
+
+describe('reviewerRouteEffortsLoaded', () => {
+  it('reports nothing as loaded before an answer arrives', () => {
+    // Otherwise the row would assert "this model exposes no reasoning levels"
+    // about a model nobody has interrogated yet.
+    expect(reviewerRouteEffortsLoaded({ loadedFor: null, route })).toBe(false)
+  })
+
+  it('reports nothing as loaded when the answer belongs to another route', () => {
+    expect(reviewerRouteEffortsLoaded({
+      loadedFor: { provider: route.provider, model: 'other' },
+      route,
+    })).toBe(false)
+  })
+
+  it('accepts the answer for the exact route', () => {
+    expect(reviewerRouteEffortsLoaded({ loadedFor: route, route })).toBe(true)
+  })
+
+  it('reports nothing while the chooser follows the session', () => {
+    expect(reviewerRouteEffortsLoaded({ loadedFor: route, route: null })).toBe(false)
+  })
+})
+
+describe('commitReviewerRouteProviders', () => {
+  it('commits an accepted answer', () => {
+    const commit = vi.fn()
+    commitReviewerRouteProviders(true, [{ id: 'zai', name: 'Z.ai' }], commit)
+    expect(commit).toHaveBeenCalledWith([{ id: 'zai', name: 'Z.ai' }])
+  })
+
+  it('commits nothing for a superseded answer, so it cannot mark the list loaded', () => {
+    const commit = vi.fn()
+    commitReviewerRouteProviders(false, [{ id: 'zai', name: 'Z.ai' }], commit)
+    expect(commit).not.toHaveBeenCalled()
+  })
+})
+
+describe('ReviewerRouteAttempt', () => {
+  it('lets the current attempt act', () => {
+    const attempts = new ReviewerRouteAttempt()
+    expect(attempts.begin()()).toBe(true)
+  })
+
+  it('discards an attempt whose dialog was closed', () => {
+    // The regression this pins: the person pressed Cancel while the preference
+    // write was in flight, and the settlement switched the preset anyway.
+    const attempts = new ReviewerRouteAttempt()
+    const accepted = attempts.begin()
+    attempts.cancel()
+    expect(accepted()).toBe(false)
+  })
+
+  it('lets the attempt that follows a cancel act', () => {
+    const attempts = new ReviewerRouteAttempt()
+    attempts.cancel()
+    expect(attempts.begin()()).toBe(true)
+  })
+
+  it('supersedes an older attempt with a newer one', () => {
+    const attempts = new ReviewerRouteAttempt()
+    const first = attempts.begin()
+    const second = attempts.begin()
+    expect(first()).toBe(false)
+    expect(second()).toBe(true)
   })
 })

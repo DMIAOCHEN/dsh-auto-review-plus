@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { PERMISSION_ACCESS_NS } from './locales.ts'
+import { reviewerRouteEffortsLoaded, reviewerRouteOptionState } from './reviewer-route-chooser.ts'
 import type { ReviewerModelView, ReviewerProviderView, ReviewerRouteValue } from './remote.ts'
 import css from './ReviewerRoutePicker.module.css'
 
@@ -22,8 +23,13 @@ export interface ReviewerRoutePickerProps {
   readonly value: ReviewerRouteValue | null
   /** The route the session would use, or null before its first request. */
   readonly sessionRoute: ReviewerRouteValue | null
-  /** Provider routes the host serves. */
+  /** Provider routes the host serves, empty until an answer arrives. */
   readonly providers: readonly ReviewerProviderView[]
+  /**
+   * Whether {@link providers} is a complete answer. Without it a list that is
+   * merely not loaded yet would read as "this provider is unavailable".
+   */
+  readonly providersLoaded: boolean
   /** Models of {@link modelsProvider}, empty until that list arrives. */
   readonly models: readonly ReviewerModelView[]
   /**
@@ -34,6 +40,12 @@ export interface ReviewerRoutePickerProps {
   readonly modelsProvider: string | null
   /** Reasoning efforts of the chosen model, in adapter order. */
   readonly reasoningEfforts: readonly string[]
+  /**
+   * Route whose efforts {@link reasoningEfforts} belongs to, or null while none
+   * has arrived. Without it an unread effort list would read as "this model
+   * exposes no reasoning levels".
+   */
+  readonly effortsRoute: ReviewerRouteValue | null
   /** Whether the choice cannot be edited right now (locked session, write in flight). */
   readonly disabled: boolean
   /** Locale lookup of this plugin's own namespace. */
@@ -68,8 +80,8 @@ function selectionOf(value: ReviewerRouteValue | null): Selection {
  * @returns the chooser's form rows.
  */
 export function ReviewerRoutePicker({
-  value, sessionRoute, providers, models, modelsProvider, reasoningEfforts, disabled, t,
-  onProviderChange, onChange,
+  value, sessionRoute, providers, providersLoaded, models, modelsProvider, reasoningEfforts, effortsRoute,
+  disabled, t, onProviderChange, onChange,
 }: ReviewerRoutePickerProps): ReactNode {
   const [selection, setSelection] = useState<Selection>(() => selectionOf(value))
   // The last value this component reported, so an echo of our own report is not
@@ -130,10 +142,23 @@ export function ReviewerRoutePicker({
   const listing = modelsForSelection ? models : []
   // A pin this host no longer advertises still has to be visible and selectable
   // — silently dropping it would hide what the session is actually pinned to,
-  // and a `value` without a matching option renders as an empty control.
-  const missingProvider = providerValue !== '' && !providers.some(provider => provider.id === providerValue)
-  const missingModel = modelsForSelection && customModel !== '' && !listing.some(model => model.id === customModel)
-  const modelsPending = selection.kind === 'custom' && !modelsForSelection
+  // and a `value` without a matching option renders as an empty control. The
+  // state decides which of the two honest sentences the placeholder carries:
+  // "this route is unavailable" is a claim only an arrived answer can make.
+  const providerState = reviewerRouteOptionState({
+    ids: providers.map(provider => provider.id),
+    loaded: providersLoaded,
+    value: providerValue,
+  })
+  const modelState = reviewerRouteOptionState({
+    ids: listing.map(model => model.id),
+    loaded: modelsForSelection,
+    value: customModel,
+  })
+  const chosenRoute = selection.kind === 'custom' && selection.model !== ''
+    ? { provider: selection.provider, model: selection.model }
+    : null
+  const effortsLoaded = reviewerRouteEffortsLoaded({ loadedFor: effortsRoute, route: chosenRoute })
   const modelSelectDisabled = disabled || selection.kind === 'follow' || !modelsForSelection || listing.length === 0
   const sessionRouteLabel = sessionRoute === null
     ? t('reviewerRoute.followSession')
@@ -153,9 +178,13 @@ export function ReviewerRoutePicker({
           {providers.map(provider => (
             <option key={provider.id} value={provider.id}>{provider.name}</option>
           ))}
-          {missingProvider
-            ? <option value={providerValue}>{t('reviewerRoute.unknownRoute')}</option>
-            : null}
+          {providerState === 'listed'
+            ? null
+            : (
+              <option value={providerValue}>
+                {providerState === 'absent' ? t('reviewerRoute.unknownRoute') : t('reviewerRoute.loading')}
+              </option>
+            )}
         </select>
       </label>
       <label className={css.field}>
@@ -169,17 +198,17 @@ export function ReviewerRoutePicker({
           {selection.kind === 'follow'
             ? <option value="">{sessionRouteLabel}</option>
             : null}
-          {selection.kind === 'custom' && (selection.model === '' || modelsPending)
+          {selection.kind === 'custom' && (selection.model === '' || modelState === 'pending')
             ? (
               <option value={selection.model}>
-                {modelsForSelection ? t('reviewerRoute.unknownRoute') : t('reviewerRoute.loading')}
+                {modelState === 'pending' ? t('reviewerRoute.loading') : t('reviewerRoute.unknownRoute')}
               </option>
             )
             : null}
           {selection.kind === 'custom' && modelsForSelection
             ? listing.map(model => <option key={model.id} value={model.id}>{model.name}</option>)
             : null}
-          {missingModel
+          {modelState === 'absent'
             ? <option value={customModel}>{t('reviewerRoute.unknownRoute')}</option>
             : null}
         </select>
@@ -187,7 +216,9 @@ export function ReviewerRoutePicker({
       {customModel === '' ? null : (
         <p className={css.capability}>
           {`${t('reviewerRoute.reasoning')}: `}
-          {reasoningEfforts.length === 0 ? t('reviewerRoute.noReasoning') : reasoningEfforts.join(' / ')}
+          {!effortsLoaded
+            ? t('reviewerRoute.loading')
+            : reasoningEfforts.length === 0 ? t('reviewerRoute.noReasoning') : reasoningEfforts.join(' / ')}
         </p>
       )}
     </div>

@@ -3,7 +3,7 @@
  * function or object that can be checked without rendering anything.
  * @module dsh-auto-review-plus/client/reviewer-route-chooser
  */
-import type { ReviewerRouteValue, ReviewerRouteView } from './remote.ts'
+import type { ReviewerProviderView, ReviewerRouteValue, ReviewerRouteView } from './remote.ts'
 
 /** Inputs of the "adopt the host's answer" decision. */
 export interface ReviewerRouteAdoptionInput {
@@ -139,5 +139,104 @@ export class ReviewerRouteLoadFences {
     this.generation.answer += 1
     this.generation.models += 1
     this.generation.efforts += 1
+  }
+}
+
+/** How one select's current value has to be labelled. */
+export type ReviewerRouteOptionState = 'listed' | 'pending' | 'absent'
+
+/** Inputs of the "what does this select show" decision. */
+export interface ReviewerRouteOptionInput {
+  /** Ids the last ACCEPTED answer listed. */
+  readonly ids: readonly string[]
+  /** Whether that answer arrived for the list on screen. */
+  readonly loaded: boolean
+  /** The select's current value; the empty string is the explicit default. */
+  readonly value: string
+}
+
+/**
+ * Decide whether one select's value is a listed option, an option whose list has
+ * not arrived, or one the host really does not offer.
+ *
+ * The distinction is the whole point: "this route is unavailable" is a claim
+ * about the host, and until an answer arrives the chooser must not make it. A
+ * pending value is shown as loading; only an accepted answer that omits the
+ * value justifies the unavailable sentence.
+ * @param input - listed ids, loaded flag, and the current value.
+ * @returns which of the three states the value is in.
+ */
+export function reviewerRouteOptionState(input: ReviewerRouteOptionInput): ReviewerRouteOptionState {
+  if (input.value === '') return 'listed'
+  if (input.ids.includes(input.value)) return 'listed'
+  return input.loaded ? 'absent' : 'pending'
+}
+
+/** Inputs of the reasoning-capability decision. */
+export interface ReviewerRouteEffortsInput {
+  /** Route whose efforts the accepted answer reported, or null while unknown. */
+  readonly loadedFor: ReviewerRouteValue | null
+  /** Route currently chosen, or null when the chooser follows the session. */
+  readonly route: ReviewerRouteValue | null
+}
+
+/**
+ * Whether the reasoning efforts on screen belong to the chosen route.
+ *
+ * Same rule as {@link reviewerRouteOptionState}: an effort list that has not
+ * arrived (or belongs to another route) must not be reported as "this model
+ * exposes no reasoning levels".
+ * @param input - the route the accepted answer named and the chosen route.
+ * @returns whether the efforts may be reported as this route's own.
+ */
+export function reviewerRouteEffortsLoaded(input: ReviewerRouteEffortsInput): boolean {
+  if (input.loadedFor === null || input.route === null) return false
+  return input.loadedFor.provider === input.route.provider
+    && input.loadedFor.model === input.route.model
+}
+
+/**
+ * Commit one provider list, or nothing when its answer was superseded.
+ *
+ * A fenced-out answer must not touch the displayed state — in particular it must
+ * not mark the list as loaded, or a rejected host read would look like a
+ * complete answer that happens to omit the pinned provider.
+ * @param accepted - whether the answer's fence is still current.
+ * @param providers - the answer.
+ * @param commit - applies the answer to the caller's state.
+ */
+export function commitReviewerRouteProviders(
+  accepted: boolean,
+  providers: readonly ReviewerProviderView[],
+  commit: (providers: readonly ReviewerProviderView[]) => void,
+): void {
+  if (!accepted) return
+  commit(providers)
+}
+
+/**
+ * One confirmation attempt whose settlement may still act.
+ *
+ * A dialog can be closed while its write is in flight, and that write's
+ * settlement must then change nothing: switching the preset after the person
+ * cancelled is the one outcome that is never acceptable. Closing invalidates
+ * every in-flight attempt instead of trying to abort the request, so the dialog
+ * stays closable at all times.
+ */
+export class ReviewerRouteAttempt {
+  private generation = 0
+
+  /**
+   * Begin one attempt.
+   * @returns a predicate that stays true only while this attempt is current.
+   */
+  begin(): () => boolean {
+    const mine = ++this.generation
+    return () => this.generation === mine
+  }
+
+  /** Invalidate every in-flight attempt (the dialog was closed). */
+  cancel(): void {
+    this.generation += 1
   }
 }
