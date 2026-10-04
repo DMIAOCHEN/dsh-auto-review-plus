@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { FinishReason, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { buildReviewRequest, parseDecision, readReviewDecision } from '../src/review.ts'
+import { buildReviewRequest, parseDecision, readReviewDecision, resolveReviewReasoning } from '../src/review.ts'
 
 const base = {
   provider: 'opencode-go',
@@ -207,5 +207,44 @@ describe('readReviewDecision', () => {
       textDelta('{"risk":"low","decision":"deny"}'),
       finish(stop),
     ]))).rejects.toThrow(/invalid reviewer decision/)
+  })
+})
+
+const llm = (efforts: readonly string[]) => ({
+  resolveModelInfo: vi.fn(async () => ({ reasoning: { efforts: efforts.map(id => ({ id, name: id })) } })),
+})
+
+describe('resolveReviewReasoning', () => {
+  it('prefers the session level and never consults capabilities for it', async () => {
+    const client = llm([])
+    await expect(resolveReviewReasoning({
+      llm: client as never, provider: 'p', model: 'm', sessionEffort: 'high', fallbackEffort: 'low',
+    })).resolves.toBe('high')
+    expect(client.resolveModelInfo).not.toHaveBeenCalled()
+  })
+
+  it('applies the fallback when the session names none and the model supports it', async () => {
+    await expect(resolveReviewReasoning({
+      llm: llm(['off', 'low', 'high']) as never, provider: 'p', model: 'm', fallbackEffort: 'low',
+    })).resolves.toBe('low')
+  })
+
+  it('omits the level when the model does not support the fallback', async () => {
+    await expect(resolveReviewReasoning({
+      llm: llm(['off', 'high']) as never, provider: 'p', model: 'm', fallbackEffort: 'low',
+    })).resolves.toBeUndefined()
+  })
+
+  it('omits the level when no fallback is configured', async () => {
+    await expect(resolveReviewReasoning({
+      llm: llm(['low']) as never, provider: 'p', model: 'm',
+    })).resolves.toBeUndefined()
+  })
+
+  it('omits the level when the model reports no reasoning support at all', async () => {
+    await expect(resolveReviewReasoning({
+      llm: { resolveModelInfo: async () => ({}) } as never,
+      provider: 'p', model: 'm', fallbackEffort: 'low',
+    })).resolves.toBeUndefined()
   })
 })

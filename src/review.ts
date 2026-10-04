@@ -38,6 +38,32 @@ export function buildReviewRequest(input: ReviewRequestInput): GenerateOptions {
     : { ...base, reasoningEffort: input.reasoningEffort as GenerateOptions['reasoningEffort'] })
 }
 
+/** The slice of the llm service this module needs. */
+export interface ReasoningCapabilities {
+  resolveModelInfo(provider: string, model: string): Promise<{ reasoning?: { efforts?: readonly { id: string }[] } }>
+}
+
+export interface ResolveReviewReasoningInput {
+  readonly llm: ReasoningCapabilities
+  readonly provider: string
+  readonly model: string
+  readonly sessionEffort?: string
+  readonly fallbackEffort?: string
+}
+
+/**
+ * The reasoning level the review request should send: the session's own level
+ * verbatim, else the configured fallback when this exact model offers it.
+ * Never invents a level a model cannot take (`resolveReasoningLevel` would throw).
+ */
+export async function resolveReviewReasoning(input: ResolveReviewReasoningInput): Promise<string | undefined> {
+  if (input.sessionEffort !== undefined) return input.sessionEffort
+  if (input.fallbackEffort === undefined) return undefined
+  const info = await input.llm.resolveModelInfo(input.provider, input.model)
+  const offered = info.reasoning?.efforts?.some(effort => effort.id === input.fallbackEffort) === true
+  return offered ? input.fallbackEffort : undefined
+}
+
 /** Consume zero or more reasoning blocks, one JSON text block, and one terminal stop. */
 export async function readReviewDecision(stream: AsyncIterable<StreamChunk>): Promise<AutoReviewDecision> {
   const assembler = new BlockAssembler()
