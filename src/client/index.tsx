@@ -14,20 +14,24 @@
  * settings row and `/permission` popup decoration stay with the upstream
  * package: this half owns the composer control only.
  */
-/// <reference path="./upstream-faces.d.ts" />
-/// <reference path="./upstream-augmentations.d.ts" />
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only imports: the client root Context augmentations for the services
-// below (`ctx.slots`, `ctx.locale`, `ctx.remote`, `ctx.sessions`). Erased at
-// build time, so none of them reaches the client bundle as an import.
+// below (`ctx.slots`, `ctx.locale`, `ctx.remote`, `ctx.sessions`) and the
+// standard session props the composer cell injects (`useProjection`). Mirrors
+// the upstream client entry's own type-only list; erased at build time, so none
+// of them reaches the client bundle as an import.
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
-// Type-only: pulls the conversation-owned permission slot declaration and the
-// standard session projection hook into this package's Client face.
+// Type-only: pulls the conversation-owned permission slot declaration into this
+// package's Client face.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+// Upstream takes the client-side SessionId from the Remote event face, not from
+// the host session store: the composer cell hands out the plain string the
+// client contract uses.
+import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { PermissionCatalogDirectory } from './catalog.ts'
 import { PermissionControl } from './PermissionControl.tsx'
 import type { PermissionControlInjected } from './PermissionControl.tsx'
@@ -54,12 +58,8 @@ export function apply(ctx: Context): void {
     () => ctx.locale.register(PERMISSION_ACCESS_NS, { zh: accessZh, en: accessEn }),
     'auto-review-plus: permission control dictionaries',
   )
-  // The browser's `ctx.sessions` is the client Session Controller, a different
-  // service from the host `ctx.sessions` (`@deepseek-ai/dsh-session`'s store)
-  // that shares the name in this repository's single tsc program, so the client
-  // face is narrowed here rather than declaration-merged — see
-  // ./upstream-augmentations.d.ts.
-  const sessions = ctx.sessions as unknown as ISessions
+  // The browser's `ctx.sessions` is the client Session Controller.
+  const sessions = ctx.sessions
 
   // One process catalog directory shared by every reader in this plugin.
   const catalog = new PermissionCatalogDirectory(ctx)
