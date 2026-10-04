@@ -31,6 +31,23 @@
  *
  * A MISSING record means "follow the session's own route". There is no stored
  * `null`: an explicit reset deletes the record.
+ *
+ * LIFECYCLE — the domain data outlives every session it describes. It lives
+ * exactly as long as the profile owning the storage backend, and deleting a
+ * session does NOT delete its record. The cost of that is at most one small
+ * record per session, and the alternative (a cleanup path hung off session
+ * deletion) would need a deletion hook this package does not own. A deleted
+ * session therefore leaves an orphan that the next pin overwrites.
+ *
+ * OPEN FAILURE POLICY — `invalidRecords: 'backup-and-skip'` is deliberate.
+ * These records are REGENERABLE PREFERENCES: the worst consequence of dropping
+ * one is that its session falls back to following its own model route. Under
+ * the default policy a single record failing its schema makes the whole `open`
+ * reject with `invalid-record`, which would take the HOST PLUGIN'S MOUNT down
+ * with it — letting one unreadable preference disable the authorization gate
+ * itself. Availability of the gate wins. The flag only takes effect on a
+ * backend that offers `backupRecord` (the per-record JSON backend does); a
+ * backend without it still fails closed, which is the safe direction.
  * @module dsh-auto-review-plus/reviewer-route
  */
 import { z as zod } from 'zod'
@@ -58,12 +75,15 @@ export const reviewerRouteSchema: zod.ZodType<ReviewerRoute> = zod.object({
  * The name matches `UNIT_NAME_RE` (`/^[a-z][a-z0-9_]*$/` in
  * `@deepseek-ai/dsh-storage`), which `defineDomain` re-checks at module load
  * and rejects loudly — the snake_case shape follows the official
- * `session_projcache` domain.
+ * `session_projcache` domain. `invalidRecords` is declared for the
+ * gate-availability reason in the module header: a preference that cannot be
+ * read back must not be able to fail the host plugin's mount.
  */
 export const autoReviewPlusDomainSpec = defineDomain({
   name: 'auto_review_plus',
   version: 1,
   layout: 'per-record',
+  invalidRecords: 'backup-and-skip',
   tables: { routes: domainTable<SessionId, ReviewerRoute>(reviewerRouteSchema) },
 })
 
@@ -79,9 +99,18 @@ export type ReviewerRouteTable = Pick<KvTable<SessionId, ReviewerRoute>, 'get' |
  *
  * The table serves the stored object itself and forbids mutating it in place,
  * so this returns a DETACHED copy.
+ *
+ * `undefined` means "this session has no record", NOT "no answer". `KvTable.get`
+ * asserts the domain is still readable, so a read against a CLOSED domain
+ * throws `DomainError('closed')` SYNCHRONOUSLY instead of returning `undefined`
+ * (`assertReadable` is called from `KvTableImpl.get`). The `@returns` clause
+ * below therefore does not cover a closed domain: a caller must finish its
+ * in-flight reviews BEFORE closing the domain — that ordering belongs to the
+ * host plugin's unload sequence, and this function cannot paper over it.
  * @param table - the `routes` table of the Auto review route domain.
  * @param sessionId - session whose durable decision is read.
  * @returns a detached route, or undefined to follow the session's own route.
+ * @throws when the owning domain has already been closed (`DomainError('closed')`).
  */
 export function reviewerRoute(table: ReviewerRouteTable, sessionId: SessionId): ReviewerRoute | undefined {
   const route = table.get(sessionId)
@@ -95,10 +124,16 @@ export function reviewerRoute(table: ReviewerRouteTable, sessionId: SessionId): 
  * route" state; a delete of an already-absent record reports `false` and is not
  * an error. Neither branch validates the route: rejecting an unknown
  * provider/model belongs to the Remote layer, not to storage.
+ *
+ * A domain rejects new writes as soon as its close begins, so both branches
+ * REJECT with `DomainError('closed')` rather than silently doing nothing when
+ * the domain is already closing or closed — a reset issued after teardown fails
+ * loud instead of appearing to succeed.
  * @param table - the `routes` table of the Auto review route domain.
  * @param sessionId - session receiving the decision.
  * @param route - the pinned route, or null to follow the session route.
  * @returns resolution after the record is durable.
+ * @throws when the owning domain is closing or already closed (`DomainError('closed')`).
  */
 export async function setReviewerRoute(
   table: ReviewerRouteTable,

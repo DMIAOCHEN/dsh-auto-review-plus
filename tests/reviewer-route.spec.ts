@@ -40,9 +40,20 @@ describe('auto review route domain spec', () => {
     expect(autoReviewPlusDomainSpec.layout).toBe('per-record')
   })
 
-  it('declares the routes table under a name the vocabulary accepts', () => {
+  it('declares exactly one table, the routes table, under a legal name', () => {
+    // Asserted against the real spec, not a hard-coded literal: a literal
+    // `expect('routes').toMatch(UNIT_NAME_RE)` would hold no matter what the
+    // spec actually declared.
+    const tableNames = Object.keys(autoReviewPlusDomainSpec.tables)
+    expect(tableNames).toEqual(['routes'])
     expect(autoReviewPlusDomainSpec.tables.routes).toBeDefined()
-    expect('routes').toMatch(UNIT_NAME_RE)
+    for (const name of tableNames) expect(name).toMatch(UNIT_NAME_RE)
+  })
+
+  it('skips an unreadable record instead of failing the whole open', () => {
+    // Regenerable preference data: one bad record must not be able to fail the
+    // host plugin's mount and thereby disable the authorization gate.
+    expect(autoReviewPlusDomainSpec.invalidRecords).toBe('backup-and-skip')
   })
 })
 
