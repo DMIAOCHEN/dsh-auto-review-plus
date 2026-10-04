@@ -15,7 +15,7 @@
 - 目标运行时：dsh `0.2.0-rc.2`（已发布的 `latest`/`next` 均为此版本）。
 - 包名固定 `dsh-auto-review-plus`；**不得**使用 `@deepseek-ai/dsh-experimental-auto-review`（安装目录优先解析会遮蔽同名 profile 包）。
 - preset id 沿用 harness 的 `AUTO_PRESET = 'auto'`；**不得**把 `auto` 写入 `permission` 行的 `config.presets`。
-- 会话事件命名空间固定 `auto-review-plus/`（本计划用 `auto-review-plus/reviewer-route`）。
+- 会话级状态**一律走 storage domain**（`ctx.storageDomain`，`layout: 'per-record'`，键 = sessionId）；**禁止**声明 `SessionEventMap` 扩展或调用 `session.append`（第三方事件不在构建期生成的 `KNOWN_SESSION_EVENT_TYPES` 内，持久化读路径 fail-closed → 会话永久无法 resume）。
 - 行 id：`auto-review-plus`；patch 中必须包含对官方 `auto-review` 行的 `disabled: true`。
 - 审查请求必须携带 `sessionId` 与（会话存在时）`reasoningEffort`；`temperature` 固定 `0`。
 - 审查失败必须 fail-closed（工具体不执行）；风险策略／审批语义不得改变。
@@ -640,6 +640,8 @@ git commit -m "Add capability-checked fallback reasoning for the reviewer"
 
 ### Task 4: 会话级审查路由（事件 + projection + 读写）
 
+> ⚠️ **本节已被取代（2026-10-04）**：状态机制由「会话事件 + 投影」改为 **storage domain**。权威描述见 spec §5.3；实现简报见 `.sdd/dsh-auto-review-plus/task-4-redo-brief.md`。下面的旧代码块与测试**仅作历史记录，不得据以实现**——理由：第三方自定义事件类型不在构建期生成的 `KNOWN_SESSION_EVENT_TYPES` 内，且 `Session.append` 无法标记 `ignorable`，持久化读路径 fail-closed 抛 `SessionFormatUnsupportedError`，会让受影响会话**永久无法 resume**。
+
 **Files:**
 - Create: `src/reviewer-route.ts`
 - Modify: `package.json`（`dependencies` 增加 `"zod": "4.6.5"`）
@@ -821,7 +823,7 @@ cp "E:/03.Github/deepseek-harness/packages/experimental/auto-review/src/index.ts
 把复制进来的 `classifyRisk` 中构造 `GenerateOptions` 的那段（官方文件里 `const options: GenerateOptions = deepFreeze({...})` 至 `return readDecision(ctx.llm.stream(options))`）替换为：
 
 ```ts
-  const route = reviewerRoute(ctx.get('sessionProjections'), agent.session) ?? {
+  const route = reviewerRoute(reviewerRouteTable, String(agent.session.id)) ?? {
     provider: snapshot.provider, model: snapshot.model,
   }
   const reasoningEffort = await resolveReviewReasoning({
@@ -998,7 +1000,7 @@ git commit -m "Shadow the permission slot with a ported permission control"
     const header = session.requestHeader()
     if (header === undefined) throw new Error('auto-review-plus: the session has no request header yet')
     return {
-      route: reviewerRoute(this.ctx.get('sessionProjections'), session) ?? null,
+      route: reviewerRoute(this.reviewerRouteTable, String(sessionId)) ?? null,
       sessionRoute: { provider: header.config.provider, model: header.config.model },
     }
   }
@@ -1024,7 +1026,7 @@ git commit -m "Shadow the permission slot with a ported permission control"
     const session = this.ctx.sessions.get(sessionId as never)
     if (session === undefined) throw new Error(`auto-review-plus: unknown session ${sessionId}`)
     if (route !== null) this.assertKnownRoute(route)
-    setReviewerRoute(session, route)
+    await setReviewerRoute(this.reviewerRouteTable, String(sessionId), route)
   }
 ```
 
@@ -1228,7 +1230,7 @@ Expected: `publish` 工作流成功，npm 上出现 `dsh-auto-review-plus@0.1.0`
 
 - `buildReviewRequest`（Task 2）的 `ReviewRequestInput` 字段在 Task 5 调用处一一对应（`provider`/`model`/`sessionId`/`reasoningEffort`/`system`/`userText`/`signal`）。
 - `resolveReviewReasoning`（Task 3）的参数名在 Task 5 中一致（`llm`/`provider`/`model`/`sessionEffort`/`fallbackEffort`）。
-- `reviewerRoute` / `setReviewerRoute`（Task 4）在 Task 5、Task 7 中的调用签名一致；事件名 `auto-review-plus/reviewer-route` 与投影键 `autoReviewPlusRoute` 全文一致。
+- `reviewerRoute` / `setReviewerRoute`（Task 4 重做版）在 Task 5、Task 7 中的调用签名一致：均接收（域表切片, sessionId），读为同步、写为异步；**全文不得再出现 `session.append` / `SessionEventMap` / `autoReviewPlusRouteProjectionDefinition`**（Task 4 节的历史代码除外，且该节已标注为不可实现）。
 - Task 7 的 Remote 方法名（`providers`/`models`/`modelInfo`/`reviewerRouteView`/`setReviewerRoute`）与其在 `ReviewerRoutePicker` 中的消费一致。
 
 **已知未决（实施时若发生需回报）**：Task 1 的客户端构建契约若不成立，客户端任务（Task 6、7）整体改为 spec §7.2 的退路方案，届时需重新评估计划而不是硬推。

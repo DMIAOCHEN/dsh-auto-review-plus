@@ -86,10 +86,10 @@ GUI 权限控件（本包，priority: -1 遮蔽官方 PermissionSelect）
   │  选择 "Auto review" → 确认弹框（内置审查模型选择器）
   ├─▶ 提交 preset "auto"：复用既有 remote submit(sessionId, preset)
   └─▶ 若选定了审查模型 → 调用本插件 Remote
-                            → session.append('auto-review-plus/reviewer-route', { route })
+                            → 写入审查路由 storage domain：table.put(sessionId, route)
 宿主半
   registerAuto(admit)                      ← 单占用；官方那份必须不加载
-  工具调用前置审查：route = 投影(钉住的) ?? 会话当前 route
+  工具调用前置审查：route = 域表记录(sessionId) ?? 会话当前 route
   审查请求 = { provider, model, sessionId, reasoningEffort, temperature: 0, system, messages }
 ```
 
@@ -114,14 +114,15 @@ GUI 权限控件（本包，priority: -1 遮蔽官方 PermissionSelect）
 
 ### 5.3 会话级"审查路由"状态
 
-照抄官方 `packages/subagent/tool-subagent/src/model-selection-state.ts` 的成熟模式：
+**状态存放在 storage domain，绝不写入会话日志。**（原方案的"自定义会话事件 + 投影"经查证会让受影响会话永久无法 resume，已推翻。）
 
-- **事件类型**：`'auto-review-plus/reviewer-route'`，载荷 `{ route: { provider: string; model: string } | null }`（`null` = 跟随会话模型，即重置）。独立命名空间，避免与官方将来事件名相撞。
-- **投影**：`SessionProjectionStateMap.autoReviewPlusRoute`，`stateVersion: 1` + schema，`apply` 末条胜出。
-- **读**：`投影值 ?? 会话当前路由`；**写**：`session.append('auto-review-plus/reviewer-route', { route })`。
-- **语义**：仅当前会话；因为是会话事件，进程重启／会话恢复后仍在；新会话自然回到"跟随会话模型"。
+- **域**：`ctx.storageDomain.open(autoReviewPlusDomainSpec)`，`layout: 'per-record'`（每个会话一份文档，与官方 `dsh-session-projection-cache` 的 `session_projcache` 同构）；域名为满足 `UNIT_NAME_RE` 的常量（如 `auto_review_plus`，最终值以实现为准）；表 `routes` 键 = sessionId，值 = `{ provider, model }`（zod `.strict()` 校验）。
+- **读**：`table.get(sessionId)`（同步内存读）→ `ReviewerRoute | undefined`，返回**分离副本**（`KvTable` 文档明确：返回的是存储对象本身、**禁止就地修改**）；`undefined` = **跟随会话模型**。
+- **写**：`table.put(sessionId, route)` 钉住；`table.delete(sessionId)` 重置为跟随（忽略返回值，不因"本来不存在"报错）。
+- **生命周期**：`DomainFacility.open` 返回的句柄由调用方负责 `close()`，宿主半用 `ctx.effect` 持有 disposer；域数据在 `$DSH_HOME/storages` 下、与 profile 同生命周期，**不随会话删除自动清理**（量级为一个会话一条小记录）。
+- **语义**：仅当前会话键；进程重启／会话恢复后仍在；新会话无记录 → 自然跟随会话模型。
 - **写入校验**：提交前确认该路由存在于当前 provider/model 目录，未知路由返回明确错误（不静默接受）。
-- **实现约束**：`SessionEventMap` 支持插件合并扩展（`packages/core/session/src/types.ts:430` 明确 "plugin-merged extensions included"）；载荷必须 JSON 可序列化。
+- **证据（为什么不能用会话事件）**：`KNOWN_SESSION_EVENT_TYPES` 是构建期生成的静态集合，repo 外插件事件按构造不在其中，且官方明确否决"事件名注册"（`@deepseek-ai/dsh-session/lib/types/known-event-types.js:1-21`）；`Session.append` 对非 surface 类型不允许第三个参数、运行时静默丢弃 `ignorable`（`lib/index.js:1441-1459`）；持久化读路径对"未知 + 非 ignorable"**fail-closed 抛 `SessionFormatUnsupportedError`**（`@deepseek-ai/dsh-session-persistence/lib/index.js:182-189`；调用点 `dsh-session-persistence-jsonl/lib/index.js:2824/2720/1818`、`worker.cjs:12765`）；而**写路径不校验**，故障被推迟到 resume 时刻且已落盘日志无法自愈。
 
 ### 5.4 客户端接口面（本包 Remote）
 
@@ -164,10 +165,10 @@ GUI 权限控件（本包，priority: -1 遮蔽官方 PermissionSelect）
 
 精确语义（消除歧义）：
 
-- **触发条件**：会话进入 Auto 且满足全部三条——该会话不存在 `auto-review-plus/reviewer-route` 事件；本会话内未关闭过该弹框；当前没有其它路径已打开该弹框。
-- **"跟随当前会话模型"也是一次显式选择**：会追加 `{ route: null }` 事件，因此此后不再自动弹框（重置语义与"从未选择"在行为上等价，但状态是显式的）。
-- **关闭（不选择）**：不追加任何事件；仅在客户端内存中记住"本会话已关闭"，避免反复打扰。
-- **页面刷新／会话恢复后**：内存标记丢失，若仍无任何选择事件，下次进入 Auto 会再出现一次——这与"尚未选择"的语义一致，可接受。
+- **触发条件**：会话进入 Auto 且满足全部三条——该会话在**审查路由域表里没有记录**；客户端本会话内未做过选择／未关闭过该弹框；当前没有其它路径已打开该弹框。
+- **"跟随当前会话模型"= 删除记录**（`table.delete(sessionId)`），与"从未选择"在存储上等价；客户端在**内存**里记住"本会话做过选择"，因此同一会话内不再重复弹出（跨会话／刷新后，若仍无记录会再出现一次——这与"尚未选择"的语义一致，可接受）。
+- **关闭（不选择）**：不写任何记录；同样只记在客户端内存里，避免反复打扰。
+- **页面刷新／会话恢复后**：内存标记丢失，若仍无记录，下次进入 Auto 会再出现一次。
 - 从输入框 chip 路径选择 Auto 时，弹框由该路径同步打开（同一次交互，不重复弹出）。
 
 ### 6.4 文案与 i18n
@@ -239,6 +240,7 @@ GUI 权限控件（本包，priority: -1 遮蔽官方 PermissionSelect）
 | 客户端产物格式变化 | 依赖 ModuleLoader 包装与冻结模块表 | 由 7.2 的 spike 早期暴露；格式变化时优先修包装层 |
 | 与官方插件冲突 | 单占用 preset、同名包遮蔽 | 4.2 的三个硬前置 + 启动诊断 |
 | 发布凭据与产物漂移 | npm 发布需凭据；入库产物可能落后于源码 | 7.3 的产物漂移校验与 tag↔version 校验；凭据方式二选一并在 README 写明 |
+| **插件状态误入会话日志** | 第三方扩展的事件类型不在构建期生成的 `KNOWN_SESSION_EVENT_TYPES` 内，且 `Session.append` 无法标 `ignorable`；持久化读路径对此 fail-closed → **会话永久无法 resume**（写路径不校验，故障推迟到 resume） | **硬约束**：本包不得声明 `SessionEventMap` 扩展、不得调用 `session.append`；会话级状态一律走 storage domain（见 5.3）。README 写明该约束与原因 |
 
 **退出策略**：上游 #8670 / #8764 任一修复发布后，若官方审查请求已携带 `sessionId` 与会话思考级别，本包应被弃用；README 写明判断标准与卸载步骤。
 
@@ -253,7 +255,7 @@ GUI 权限控件（本包，priority: -1 遮蔽官方 PermissionSelect）
 
 1. 建仓库骨架：许可／署名文件、`.gitattributes`（`* text=auto eol=lf`）、`.gitignore`；
 2. **客户端构建 spike**（决定后面走 UI 还是退回）；
-3. 宿主半：修复两处 + 健壮性 + 会话级路由状态 + Remote；
+3. 宿主半：修复两处 + 健壮性 + 会话级路由状态（**storage domain**，非会话事件）+ Remote；
 4. 宿主半单元／端到端验证（清单 7、8、9）；
 5. 客户端半：遮蔽权限槽 + 含模型选择器的确认弹框 + 自动弹框一次 + i18n；
 6. 产物构建与入库，端到端验证清单全量回归（1–10）；
@@ -266,7 +268,8 @@ GUI 权限控件（本包，priority: -1 遮蔽官方 PermissionSelect）
 - pi-ai 路由头注入：`@earendil-works/pi-ai` `dist/providers/opencode-headers.js`
 - 适配器透传：`packages/llm/llm-pi-ai/src/adapter.ts`（`streamWithSnapshot` 的 `sessionId` 与 `reasoningEffort` 处理）
 - 会话请求头字段：`packages/session/session-format-v0-to-v1/src/payload-validation.ts`（`config.reasoningEffort`、`adapterDefaults.reasoningEffort`）
-- 每会话状态先例：`packages/subagent/tool-subagent/src/model-selection-state.ts`；`packages/core/session/src/types.ts:430`
+- 每会话状态先例（**storage domain**）：`@deepseek-ai/dsh-session-projection-cache` 的 `session_projcache` 域（每个会话一份文档、`layout: 'per-record'`）；`dsh-better-sidebar` 亦把插件自有状态放在会话日志之外
+- **禁止**把插件状态写进会话日志的证据：`@deepseek-ai/dsh-session/lib/types/known-event-types.js:1-21`；`lib/index.js:1441-1459`（`append` 无 `ignorable` 槽位）；`@deepseek-ai/dsh-session-persistence/lib/index.js:182-189`（读路径 fail-closed）；`dsh-session-persistence-jsonl/lib/index.js:2824/2720/1818`、`worker.cjs:12765`（三处调用点 + worker 双份）
 - preset 单占用：`packages/interaction/permission-presets/src/index.ts:213-218, 307-317`
 - 权限槽与遮蔽：`packages/client/ui-conversation/src/client/contract/slots.ts:217`；`packages/client/ui-slots/src/index.ts:1210-1220, 1352-1367`
 - 官方客户端实现蓝本：`packages/client/ui-permission-presets/src/client/PermissionSelect.tsx`、`src/client/index.ts`
