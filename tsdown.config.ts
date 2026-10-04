@@ -1,10 +1,14 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { basename, dirname, resolve } from 'node:path'
+import { basename, dirname, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'tsdown'
 
 /** Module id stamped into the ModuleLoader registration and onto injected style tags. */
 const CLIENT_ID = 'dsh-auto-review-plus'
+
+/** Package root, the anchor for the machine-independent virtual ids below. */
+const PACKAGE_ROOT = dirname(fileURLToPath(import.meta.url))
 
 /**
  * Virtual-id wrapper keeping module CSS away from tsdown's own CSS pipeline
@@ -52,19 +56,24 @@ function styleInjectionModule(id, fileId, css, classMap) {
  * inside `.triggerIcon`, and `0.2px` never matches at all). Names are hashed
  * per file exactly as CSS Modules does, so two plugins' sheets cannot collide.
  * @param id - plugin id stamped on the injected tag.
+ * @param root - package root; virtual ids are relative to it so the emitted
+ * bundle never carries the build machine's directory.
  * @returns the rolldown plugin.
  */
-function cssModulesPlugin(id) {
+function cssModulesPlugin(id, root) {
   return {
     name: 'dsh-css-modules-inline',
     resolveId(source, importer) {
       if (!source.endsWith('.module.css')) return null
       const file = importer === undefined ? source : resolve(dirname(importer), source)
-      return CSS_VIRTUAL_PREFIX + file + CSS_VIRTUAL_SUFFIX
+      // The virtual id rides into rolldown's `//#region` comment, so it must be
+      // machine-independent (and must not leak the build directory): a
+      // package-relative, slash-normalized path, not the absolute one.
+      return CSS_VIRTUAL_PREFIX + relative(root, file).split(sep).join('/') + CSS_VIRTUAL_SUFFIX
     },
     async load(virtualId) {
       if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) return null
-      const fileId = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length)
+      const fileId = resolve(root, virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length))
       // The virtual id otherwise hides the physical stylesheet from the watch graph.
       this.addWatchFile(fileId)
       const source = await readFile(fileId, 'utf8')
@@ -109,7 +118,7 @@ const client = {
   dts: { emitDtsOnly: false },
   outDir: 'lib',
   external: [/^@deepseek-ai\//, 'react', 'react-dom', 'react/jsx-runtime'],
-  plugins: [cssModulesPlugin(CLIENT_ID)],
+  plugins: [cssModulesPlugin(CLIENT_ID, PACKAGE_ROOT)],
   outputOptions: { entryFileNames: 'client.body.js' },
 }
 
