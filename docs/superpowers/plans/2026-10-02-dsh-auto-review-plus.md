@@ -825,7 +825,7 @@ cp "E:/03.Github/deepseek-harness/packages/experimental/auto-review/src/index.ts
 把复制进来的 `classifyRisk` 中构造 `GenerateOptions` 的那段（官方文件里 `const options: GenerateOptions = deepFreeze({...})` 至 `return readDecision(ctx.llm.stream(options))`）替换为：
 
 ```ts
-  const route = reviewerRoute(reviewerRouteTable, String(agent.session.id)) ?? {
+  const route = reviewerRoute(reviewerRouteTable, agent.session.id) ?? {
     provider: snapshot.provider, model: snapshot.model,
   }
   const reasoningEffort = await resolveReviewReasoning({
@@ -1002,7 +1002,7 @@ git commit -m "Shadow the permission slot with a ported permission control"
     const header = session.requestHeader()
     if (header === undefined) throw new Error('auto-review-plus: the session has no request header yet')
     return {
-      route: reviewerRoute(this.reviewerRouteTable, String(sessionId)) ?? null,
+      route: reviewerRoute(this.reviewerRouteTable, session.id) ?? null,
       sessionRoute: { provider: header.config.provider, model: header.config.model },
     }
   }
@@ -1024,11 +1024,11 @@ git commit -m "Shadow the permission slot with a ported permission control"
   }
 
   @Remote
-  setReviewerRoute(sessionId: string, route: ReviewerRoute | null): void {
+  async setReviewerRoute(sessionId: string, route: ReviewerRoute | null): Promise<void> {
     const session = this.ctx.sessions.get(sessionId as never)
     if (session === undefined) throw new Error(`auto-review-plus: unknown session ${sessionId}`)
     if (route !== null) this.assertKnownRoute(route)
-    await setReviewerRoute(this.reviewerRouteTable, String(sessionId), route)
+    await setReviewerRoute(this.reviewerRouteTable, session.id, route)
   }
 ```
 

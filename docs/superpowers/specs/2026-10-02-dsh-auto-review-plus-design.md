@@ -132,8 +132,8 @@ GUI 权限控件（本包，priority: -1 遮蔽官方 PermissionSelect）
 @Remote providers()                     → 可选 provider 列表
 @Remote models(provider)                → 该 provider 的模型列表
 @Remote modelInfo(provider, model)      → 该模型的 reasoning 能力（显示 + 校验）
-@Remote reviewerRoute(sessionId)        → { route: 钉住的 | null, sessionRoute: 当前会话路由 }
-@Remote setReviewerRoute(sessionId, r)  → 写会话事件（r = null 即重置）
+@Remote reviewerRoute(sessionId)        → { route: 域表记录 | null, sessionRoute: 当前会话路由 }
+@Remote setReviewerRoute(sessionId, r)  → 写 storage domain 的 routes 表：r = null → delete（重置），否则 put
 ```
 
 ### 5.5 生命周期与错误处理（与官方对齐）
