@@ -219,18 +219,12 @@ const types = {
 }
 
 /**
- * The host entry's own declaration, next to `lib/index.js`. It used to ride the
- * host bundle's `dts` emit; that bundle now starts from JavaScript, so the
- * declaration is emitted from the TypeScript source instead (a JS entry has no
- * types to emit).
+ * Three builds and no more: the host bundle, the client bundle, and the
+ * declaration tree.
+ *
+ * There used to be a fourth (`rootTypes`) emitting `lib/index.d.ts` next to the
+ * host bundle. Nothing referenced it — `types` and `exports["."].types` both
+ * point at `lib/types/index.d.ts` — and it was absent from package.json's
+ * `files`, so all it did was duplicate `lib/types/index.d.ts` byte for byte.
  */
-const rootTypes = {
-  entry: ['src/index.ts'],
-  format: ['es'],
-  platform: 'node',
-  target: 'node20',
-  dts: { emitDtsOnly: true },
-  outDir: 'lib',
-}
-
-export default defineConfig([host, client, types, rootTypes])
+export default defineConfig([host, client, types])
