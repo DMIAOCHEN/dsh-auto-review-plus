@@ -1,4 +1,4 @@
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmRuntime, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { BlockAssembler } from '@deepseek-ai/dsh-llm'
 import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 
@@ -40,8 +40,29 @@ export function buildReviewRequest(input: ReviewRequestInput): GenerateOptions {
 
 /** The slice of the llm service this module needs. */
 export interface ReasoningCapabilities {
-  resolveModelInfo(provider: string, model: string): Promise<{ reasoning?: { efforts?: readonly { id: string }[] } }>
+  /**
+   * Resolve one exact route's capability metadata.
+   * @param provider - registered provider route to inspect.
+   * @param model - exact model id passed to the adapter.
+   * @param signal - optional cancellation for adapter-owned asynchronous lookup.
+   */
+  resolveModelInfo(
+    provider: string,
+    model: string,
+    signal?: AbortSignal,
+  ): Promise<{ reasoning?: { efforts?: readonly { id: string }[] } }>
 }
+
+/**
+ * Compile-time proof that the real `LlmRuntime` still satisfies
+ * {@link ReasoningCapabilities}. `ctx.llm` is assigned to this slice at every
+ * call site in the host half, so `resolveModelInfo` drifting (a changed return
+ * shape, a narrowed parameter) must fail the typecheck HERE, in this repository,
+ * rather than only where a caller happens to pass the runtime.
+ */
+type AssertAssignable<Wide, Narrow extends Wide> = Narrow
+/** Fails to compile on its own if `LlmRuntime` stops satisfying the slice. */
+export type LlmRuntimeSatisfiesReasoningCapabilities = AssertAssignable<ReasoningCapabilities, LlmRuntime>
 
 export interface ResolveReviewReasoningInput {
   readonly llm: ReasoningCapabilities
@@ -49,17 +70,28 @@ export interface ResolveReviewReasoningInput {
   readonly model: string
   readonly sessionEffort?: string
   readonly fallbackEffort?: string
+  /** Cancellation for the capability query; the capability lookup never outlives the review. */
+  readonly signal?: AbortSignal
 }
 
 /**
  * The reasoning level the review request should send: the session's own level
  * verbatim, else the configured fallback when this exact model offers it.
- * Never invents a level a model cannot take (`resolveReasoningLevel` would throw).
+ * Never invents a level a model cannot take: `LlmRuntime.resolveCallConfig`
+ * rejects an explicit, unsupported effort before any provider I/O, so sending
+ * one would trade a working review for `UNSUPPORTED_REASONING_EFFORT`.
+ *
+ * A failure of the capability query itself is NOT caught: a gate that was told
+ * to use a fallback level and cannot establish that the model takes it must fail
+ * loudly rather than silently review without the configured level.
+ * @param input - capability source, route, and the two candidate levels.
+ * @returns the level to send, or undefined to send none.
+ * @throws whatever the capability query throws, unchanged.
  */
 export async function resolveReviewReasoning(input: ResolveReviewReasoningInput): Promise<string | undefined> {
   if (input.sessionEffort !== undefined) return input.sessionEffort
   if (input.fallbackEffort === undefined) return undefined
-  const info = await input.llm.resolveModelInfo(input.provider, input.model)
+  const info = await input.llm.resolveModelInfo(input.provider, input.model, input.signal)
   const offered = info.reasoning?.efforts?.some(effort => effort.id === input.fallbackEffort) === true
   return offered ? input.fallbackEffort : undefined
 }

@@ -248,3 +248,42 @@ describe('resolveReviewReasoning', () => {
     })).resolves.toBeUndefined()
   })
 })
+
+// Added by Task 5 (the folded-in review backlog). Append-only: every case above
+// is the already-reviewed set and is intentionally untouched.
+describe('resolveReviewReasoning capability contract', () => {
+  it('never consults capabilities when no fallback level is configured', async () => {
+    const client = llm(['low'])
+    await expect(resolveReviewReasoning({
+      llm: client as never, provider: 'p', model: 'm',
+    })).resolves.toBeUndefined()
+    expect(client.resolveModelInfo).toHaveBeenCalledTimes(0)
+  })
+
+  it('asks the capability query about the reviewed provider and model', async () => {
+    const client = llm(['low', 'high'])
+    await expect(resolveReviewReasoning({
+      llm: client as never, provider: 'p', model: 'm', fallbackEffort: 'low',
+    })).resolves.toBe('low')
+    expect(client.resolveModelInfo).toHaveBeenCalledWith('p', 'm', undefined)
+  })
+
+  it('forwards the caller cancellation signal into the capability query', async () => {
+    const client = llm(['low'])
+    const controller = new AbortController()
+    await expect(resolveReviewReasoning({
+      llm: client as never, provider: 'p', model: 'm', fallbackEffort: 'low', signal: controller.signal,
+    })).resolves.toBe('low')
+    expect(client.resolveModelInfo).toHaveBeenCalledWith('p', 'm', controller.signal)
+  })
+
+  it('propagates a capability failure unchanged instead of reviewing without the fallback', async () => {
+    const failure = new Error('no adapter registered for provider "p": p/m is unavailable')
+    const client = { resolveModelInfo: vi.fn(async () => { throw failure }) }
+    const thrown = await resolveReviewReasoning({
+      llm: client as never, provider: 'p', model: 'm', fallbackEffort: 'low',
+    }).then(() => undefined, (error: unknown) => error)
+    expect(thrown).toBe(failure)
+    expect((thrown as Error).message).toContain('p/m')
+  })
+})

@@ -1,6 +1,13 @@
-# Task 5 adds the `- id: auto-review` / `disabled: true` override when this
-# plugin actually takes over the `auto` preset; until then the official layer
-# stays active so the user's working Auto review is not broken mid-development.
+# This package takes over the `auto` preset, and `permissionPresets.registerAuto`
+# is a single-slot registration: whichever layer registers first wins and the
+# other throws. The official row therefore has to be OFF before this package's
+# own row is inserted, which is why this patch layer must be applied AFTER
+# `@deepseek-ai/dsh-experimental-auto-review` in `dsh.profile.bundles`.
+# The host half also reports the conflict loudly if this override is ever lost,
+# instead of failing to load without a word.
+- id: auto-review
+  disabled: true
+
 - insert:
     - id: auto-review-plus
       name: 'dsh-auto-review-plus'
