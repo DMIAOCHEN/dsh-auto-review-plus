@@ -4,3 +4,5 @@ node_modules/
 coverage/
 # not committed: a mirror-resolved lockfile would pin CI to a third-party registry; devDependencies are exact instead
 package-lock.json
+# not committed: `npm pack` output is a build product, installed from a tarball but never tracked
+*.tgz

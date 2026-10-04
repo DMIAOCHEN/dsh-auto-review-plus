@@ -1,0 +1,6 @@
+# Task 5 adds the `- id: auto-review` / `disabled: true` override when this
+# plugin actually takes over the `auto` preset; until then the official layer
+# stays active so the user's working Auto review is not broken mid-development.
+- insert:
+    - id: auto-review-plus
+      name: 'dsh-auto-review-plus'
