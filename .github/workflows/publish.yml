@@ -1,0 +1,112 @@
+# Release pipeline: a `v*` tag (or a manual dry run) verifies the checkout and
+# publishes to npm through Trusted Publishing (OIDC).
+#
+# Distribution is GitHub-first: `lib/` is committed, so
+# `dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus#v0.1.0`
+# installs straight from the tag with no build step on the user's machine. This
+# workflow exists so the same tag can also be published to npm.
+#
+# ⚠️ THE FIRST RELEASE IS A MANUAL BOOTSTRAP. npm's Trusted Publishing is
+# package-scoped, and npm refuses to CREATE a package from an OIDC-only publish,
+# so this workflow cannot publish `0.1.0` before the name exists. A human does
+# it once with a real credential:
+#
+#   1. `npm publish --access public` from a clean tag checkout (one time only).
+#   2. npmjs.com → the package → Settings → Trusted Publisher → GitHub Actions:
+#        Organization or user: DMIAOCHEN
+#        Repository:           dsh-auto-review-plus
+#        Workflow filename:    publish.yml
+#        Environment name:     (leave empty)
+#   3. Afterwards every `v*` tag publishes from here, tokenless, with provenance.
+#
+# No npm auth token — neither a workflow secret nor an environment variable —
+# appears anywhere below: the only authentication is the OIDC token minted for
+# this job and exchanged for a short-lived npm credential. The repository is
+# public, so npm records provenance for the published tarball automatically.
+
+name: publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Manual entry point for exercising the pipeline: it runs every verification
+  # step and packs the tarball, then stops at `--dry-run` instead of uploading.
+  # Dispatch it on the release tag to publish a real release by hand.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Verify and pack only (`npm publish --dry-run`), never upload'
+        type: boolean
+        default: false
+
+# `contents: read` for the checkout, `id-token: write` for the OIDC token that
+# Trusted Publishing exchanges for the publish credential.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Node 22 ships npm 10.9.8, which cannot exchange an OIDC token at all.
+      # Trusted Publishing requires npm >= 11.5.1, so the bundled one is
+      # replaced before anything touches the registry.
+      - name: Upgrade npm for Trusted Publishing
+        run: npm install -g npm@latest && npm --version
+
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      # `lib/` is committed so git installs need no build step; this is the
+      # check that keeps the committed artifacts honest. Same shape as ci.yml,
+      # and it covers the whole directory — the bundles, the declarations under
+      # lib/types, and anything a future build step adds.
+      - name: Verify committed artifacts match a fresh build
+        run: |
+          if [ -n "$(git status --porcelain -- lib)" ]; then
+            git status --short -- lib
+            git diff -- lib
+            echo "::error::lib/ is stale — run 'npm run build' and commit the result"
+            exit 1
+          fi
+
+      # The tag is the release identity, so a `v*` ref that disagrees with
+      # package.json must not reach the registry.
+      - name: Verify the tag matches package.json
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$version" ]; then
+            echo "::error::tag v$tag does not match package.json version $version"
+            exit 1
+          fi
+          echo "tag v$tag matches package.json version $version"
+
+      # A manual dispatch on a branch with dry_run off would otherwise reach the
+      # publish step and fail there (or, worse, publish from an unverified ref).
+      - name: Require a release tag for a real publish
+        if: ${{ inputs.dry_run != true && !startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          echo "::error::a real publish needs a v* tag ref (got $GITHUB_REF); dispatch the workflow on the release tag, or set dry_run to true"
+          exit 1
+
+      - name: Publish (dry run)
+        if: ${{ inputs.dry_run == true }}
+        run: npm publish --dry-run --access public
+
+      - name: Publish
+        if: ${{ inputs.dry_run != true && startsWith(github.ref, 'refs/tags/v') }}
+        run: npm publish --provenance --access public
+

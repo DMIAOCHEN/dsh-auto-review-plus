@@ -1,14 +1,34 @@
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'tsdown'
 
-/** Module id stamped into the ModuleLoader registration and onto injected style tags. */
-const CLIENT_ID = 'dsh-auto-review-plus'
-
 /** Package root, the anchor for the machine-independent virtual ids below. */
 const PACKAGE_ROOT = dirname(fileURLToPath(import.meta.url))
+
+/**
+ * Read this package's own `name`, the single source of truth for the plugin id.
+ *
+ * Hard-coding the id here as well would let the ModuleLoader registration drift
+ * away from the name the shell resolves the installed package by — and the
+ * shell only finds the client half under the id it just loaded.
+ * `scripts/wrap-client.mjs` reads the same field for the same reason.
+ * @returns the package name.
+ * @throws when `package.json` carries no usable name.
+ */
+function packageName(): string {
+  const parsed: unknown = JSON.parse(readFileSync(resolve(PACKAGE_ROOT, 'package.json'), 'utf8'))
+  const name = (parsed as { name?: unknown }).name
+  if (typeof name !== 'string' || name === '') {
+    throw new Error('tsdown.config.ts: package.json has no name to use as the plugin id')
+  }
+  return name
+}
+
+/** Module id stamped into the ModuleLoader registration and onto injected style tags. */
+const CLIENT_ID = packageName()
 
 /**
  * Virtual-id wrapper keeping module CSS away from tsdown's own CSS pipeline

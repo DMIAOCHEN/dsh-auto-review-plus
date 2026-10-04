@@ -9,7 +9,13 @@
 // when the body carries none), so the artifact is strict in both runtimes.
 import { readFileSync, writeFileSync, rmSync } from 'node:fs'
 
-const id = 'dsh-auto-review-plus'
+// The plugin id is this package's own name, read from package.json so it can
+// never disagree with the id `tsdown.config.ts` stamps into the ModuleLoader
+// registration: the shell resolves the client half by that id alone.
+const id = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).name
+if (typeof id !== 'string' || id === '') {
+	throw new Error('wrap-client.mjs: package.json has no name to use as the plugin id')
+}
 const body = readFileSync('lib/client.body.js', 'utf8')
 
 /**
