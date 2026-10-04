@@ -56,9 +56,10 @@ jobs:
         with:
           node-version: 22
           # `registry-url` makes setup-node write a user `.npmrc` holding a
-          # `//registry.npmjs.org/:_authToken=${…}` line for an environment
-          # variable this workflow deliberately never sets (the variable name is
-          # on the generated line itself). npm substitutes the literal
+          # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` line. This
+          # workflow deliberately never sets NODE_AUTH_TOKEN — it has no `env:`
+          # binding for it and no `secrets.` reference anywhere — which is
+          # exactly what Trusted Publishing wants. npm substitutes the literal
           # placeholder for an undefined variable, and how npm >= 11.5.1's OIDC
           # path reacts to that literal is NOT verified here (no npm 11 was
           # available when this landed). If the first real publish fails with
