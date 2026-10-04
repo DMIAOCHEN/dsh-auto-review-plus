@@ -161,7 +161,7 @@ export const Config: z<Config> = z.object({
 function json(value: unknown): string {
   const rendered = JSON.stringify(value, null, 2) as string | undefined
   /* v8 ignore next -- accepted Session facts and frozen review snapshots are lossless JSON by contract. */
-  if (rendered === undefined) throw new Error('auto-review: a required value is not JSON-serializable')
+  if (rendered === undefined) throw new Error('auto-review-plus: a required value is not JSON-serializable')
   return rendered
 }
 
@@ -192,7 +192,7 @@ function loggedSchema(
   mode: 'native' | 'PTC',
 ): ToolSchema {
   if (typeof value.description !== 'string' || !isRecord(value.parameters)) {
-    throw new Error(`auto-review: the pending ${mode} tool schema is incomplete`)
+    throw new Error(`auto-review-plus: the pending ${mode} tool schema is incomplete`)
   }
   return {
     name: expectedName,
@@ -324,7 +324,7 @@ function scopePtcStarts(events: readonly SessionEvent[]): {
     }
     if (event.type !== 'tool/ptc-dispatch-start') continue
     if (openStep === undefined) {
-      throw new Error('auto-review: a PTC call has no owning step in the session log')
+      throw new Error('auto-review-plus: a PTC call has no owning step in the session log')
     }
     starts.push({ event, step: openStep })
   }
@@ -339,14 +339,14 @@ function nativeAction(
 ): PendingAction {
   if (logged.data.name !== exec.name
     || !sameJson(parseLoggedArguments(logged.data.arguments), exec.arguments)) {
-    throw new Error('auto-review: the pending native call disagrees with its logged action')
+    throw new Error('auto-review-plus: the pending native call disagrees with its logged action')
   }
   const candidates: readonly unknown[] = Array.isArray(headerTools) ? headerTools : []
   const schemas = candidates.filter((schema): schema is Record<string, unknown> =>
     isRecord(schema) && schema['name'] === exec.name)
   const [candidate] = schemas
   if (candidate === undefined || schemas.length !== 1) {
-    throw new Error('auto-review: the pending native tool schema is missing or ambiguous')
+    throw new Error('auto-review-plus: the pending native tool schema is missing or ambiguous')
   }
   const schema = loggedSchema(candidate, exec.name, 'native')
   return {
@@ -369,10 +369,10 @@ function ptcAction(
     || event.data.rootCallId !== exec.rootCallId
     || event.data.name !== exec.name
     || !sameJson(event.data.arguments, exec.arguments)) {
-    throw new Error('auto-review: the pending PTC call disagrees with its logged action')
+    throw new Error('auto-review-plus: the pending PTC call disagrees with its logged action')
   }
   if (exec.schema === undefined || exec.schema.name !== exec.name) {
-    throw new Error('auto-review: the pending PTC binding schema is missing or inconsistent')
+    throw new Error('auto-review-plus: the pending PTC binding schema is missing or inconsistent')
   }
   const schema = loggedSchema(exec.schema, exec.name, 'PTC')
   return {
@@ -401,11 +401,11 @@ function snapshotAutoReview(agent: Agent, exec: ToolExecution): ReviewSnapshot {
   const nodes = [...session.surface.nodes]
   const header = session.requestHeader()
   if (header === undefined || header.config.provider.length === 0 || header.config.model.length === 0) {
-    throw new Error('auto-review: no complete request-header route is available')
+    throw new Error('auto-review-plus: no complete request-header route is available')
   }
   const cwd = session.header.cwd
   if (cwd === undefined || cwd.length === 0) {
-    throw new Error('auto-review: the session has no working directory')
+    throw new Error('auto-review-plus: the session has no working directory')
   }
 
   const nativeCalls = events.filter((event): event is NativeCallEvent => event.type === 'tool/call')
@@ -423,7 +423,7 @@ function snapshotAutoReview(agent: Agent, exec: ToolExecution): ReviewSnapshot {
   for (const start of starts) {
     const subCallKey = scopedCallKey(start.step, start.event.data.subCallId)
     if (startsBySubCall.has(subCallKey)) {
-      throw new Error('auto-review: a PTC call identity is ambiguous in the session log')
+      throw new Error('auto-review-plus: a PTC call identity is ambiguous in the session log')
     }
     startsBySubCall.set(subCallKey, start)
     const parentKey = scopedCallKey(start.step, start.event.data.parentCallId)
@@ -433,18 +433,18 @@ function snapshotAutoReview(agent: Agent, exec: ToolExecution): ReviewSnapshot {
   }
 
   if (currentStep === undefined) {
-    throw new Error('auto-review: the pending call has no open step in the session log')
+    throw new Error('auto-review-plus: the pending call has no open step in the session log')
   }
   const currentRootCalls = nativeByScopedId.get(scopedCallKey(currentStep, exec.rootCallId)) ?? []
   const currentRootCall = currentRootCalls[0]
   if (currentRootCall === undefined || currentRootCalls.length !== 1) {
-    throw new Error('auto-review: the pending root call is missing or ambiguous in the session log')
+    throw new Error('auto-review-plus: the pending root call is missing or ambiguous in the session log')
   }
   const currentPtcStart = exec.parent === undefined
     ? undefined
     : startsBySubCall.get(scopedCallKey(currentStep, exec.callId))
   if (exec.parent !== undefined && currentPtcStart === undefined) {
-    throw new Error('auto-review: the pending PTC call is missing or ambiguous in the session log')
+    throw new Error('auto-review-plus: the pending PTC call is missing or ambiguous in the session log')
   }
 
   const projectInstructions: HistoricalUserMessage[] = []
@@ -487,29 +487,29 @@ function snapshotAutoReview(agent: Agent, exec: ToolExecution): ReviewSnapshot {
       const key = scopedCallKey(messageStep, block.id)
       const isCurrentRoot = isCurrentMessage && block.id === exec.rootCallId
       if (isCurrentRoot && passedCurrentRoot) {
-        throw new Error('auto-review: the pending root call is ambiguous in the current surface')
+        throw new Error('auto-review-plus: the pending root call is ambiguous in the current surface')
       }
       const calls = nativeByScopedId.get(key) ?? []
       if (calls.length > 1) {
-        throw new Error('auto-review: a native call identity is ambiguous in the session log')
+        throw new Error('auto-review-plus: a native call identity is ambiguous in the session log')
       }
       const call = calls[0]
       const startsForCall = startsByParent.get(key) ?? []
       if (call === undefined) {
         if (isCurrentMessage && !passedCurrentRoot) {
-          throw new Error('auto-review: a visible call before the pending root is missing from the session log')
+          throw new Error('auto-review-plus: a visible call before the pending root is missing from the session log')
         }
         if (startsForCall.length > 0) {
-          throw new Error('auto-review: an unstarted visible call has logged PTC dispatches')
+          throw new Error('auto-review-plus: an unstarted visible call has logged PTC dispatches')
         }
         sawUnstartedSibling = true
         continue
       }
       if (sawUnstartedSibling) {
-        throw new Error('auto-review: visible native call logs do not form a started prefix')
+        throw new Error('auto-review-plus: visible native call logs do not form a started prefix')
       }
       if (call.data.name !== block.name || call.data.arguments !== block.arguments) {
-        throw new Error('auto-review: a visible tool call disagrees with its logged action')
+        throw new Error('auto-review-plus: a visible tool call disagrees with its logged action')
       }
       visibleParentKeys.add(key)
       if (call !== currentRootCall || exec.parent !== undefined) {
@@ -536,7 +536,7 @@ function snapshotAutoReview(agent: Agent, exec: ToolExecution): ReviewSnapshot {
   }
 
   if (!passedCurrentRoot) {
-    throw new Error('auto-review: the pending root call is missing from the current surface')
+    throw new Error('auto-review-plus: the pending root call is missing from the current surface')
   }
 
   const action = exec.parent === undefined
@@ -575,8 +575,9 @@ function reviewUserText(snapshot: ReviewSnapshot): string {
  * The route travels WITH the failure because the caller's diagnostic has to
  * name it: a review that fails in `resolveReviewReasoning` or in the stream is
  * exactly the case where "which model was asked" is the first thing to know.
- * The route is only known after the snapshot folds, so a failure of the
- * snapshot itself reports `undefined`.
+ * The pinned route is read before the snapshot for the same reason, so a
+ * snapshot failure still names a route the session actually pinned; only a
+ * failure with no pinned route at all reports `undefined`.
  */
 type ReviewOutcome =
   | { readonly ok: true; readonly route: ReviewerRoute; readonly decision: AutoReviewDecision }
@@ -607,10 +608,14 @@ async function classifyRisk(
 ): Promise<ReviewOutcome> {
   let route: ReviewerRoute | undefined
   try {
+    // The pinned route is read FIRST: it is the one route value that does not
+    // depend on the snapshot, so a snapshot failure still reports the route the
+    // session pinned. The snapshot's own route stays the fallback for a session
+    // that pinned none. Both reads stay inside this `try`, so a failure to read
+    // the table is still an outcome rather than a thrown review.
+    route = reviewerRoute(reviewerRouteTable, agent.session.id)
     const snapshot = snapshotAutoReview(agent, exec)
-    route = reviewerRoute(reviewerRouteTable, agent.session.id) ?? {
-      provider: snapshot.provider, model: snapshot.model,
-    }
+    route ??= { provider: snapshot.provider, model: snapshot.model }
     const reasoningEffort = await resolveReviewReasoning({
       llm: ctx.llm,
       provider: route.provider,
@@ -698,90 +703,111 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // Caller-owned domain handle: this plugin opens it and closes it (see the
   // disposal order in the effect below).
   const domain = await ctx.storageDomain.open(autoReviewPlusDomainSpec)
-  const reviewerRouteTable = domain.table('routes')
-  let accepting = true
-  const active = new Set<Promise<void>>()
-  const lifecycle = new AbortController()
+  try {
+    // The effect below is what TAKES OWNERSHIP of the open domain, so every step
+    // between `open` and that registration is guarded: if the fiber is disposed
+    // in that window, `ctx.effect` throws INACTIVE_EFFECT and the domain would
+    // otherwise stay open forever, failing the next mount with `already-open`.
+    // `Domain.close()` is idempotent, so the guard stays correct even if the
+    // effect was already registered when something after it threw.
+    const reviewerRouteTable = domain.table('routes')
+    let accepting = true
+    const active = new Set<Promise<void>>()
+    const lifecycle = new AbortController()
 
-  ctx.effect(function* () {
-    // Yielded FIRST, so it is disposed LAST. Cordis runs the disposables of one
-    // effect in reverse yield order, waiting for each before the next; the
-    // teardown below (which aborts and settles every in-flight review) must
-    // finish before the domain closes, because a read against a closed domain
-    // throws DomainError('closed') synchronously. Two separate ctx.effect calls
-    // would NOT do: a fiber's top-level disposables are disposed concurrently.
-    yield () => domain.close()
-    const stopListener = ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
-      const agent = exec.agent
-      if (agent === undefined || (exec.parent === undefined && exec.name === RUN_CODE_NAME)) {
-        return next()
-      }
-      if (permissionPresets.current(agent.session) !== AUTO_PRESET) {
-        return next()
-      }
-      if (!accepting || lifecycle.signal.aborted) {
-        return { kind: 'cancel' }
-      }
+    ctx.effect(function* () {
+      // Yielded FIRST, so it is disposed LAST. Cordis runs the disposables of one
+      // effect in reverse yield order, waiting for each before the next; the
+      // teardown below (which aborts and settles every in-flight review) must
+      // finish before the domain closes, because a read against a closed domain
+      // throws DomainError('closed') synchronously. Two separate ctx.effect calls
+      // would NOT do: a fiber's top-level disposables are disposed concurrently.
+      yield () => domain.close()
+      const stopListener = ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
+        const agent = exec.agent
+        if (agent === undefined || (exec.parent === undefined && exec.name === RUN_CODE_NAME)) {
+          return next()
+        }
+        if (permissionPresets.current(agent.session) !== AUTO_PRESET) {
+          return next()
+        }
+        if (!accepting || lifecycle.signal.aborted) {
+          return { kind: 'cancel' }
+        }
 
-      const completed = Promise.withResolvers<void>()
-      active.add(completed.promise)
+        const completed = Promise.withResolvers<void>()
+        active.add(completed.promise)
+        try {
+          const signal = AbortSignal.any([exec.signal, lifecycle.signal])
+          const review = await classifyRisk(
+            ctx, agent, exec, signal, reviewerRouteTable, fallbackReasoningEffort,
+          )
+          if (isAborted(lifecycle.signal)) return { kind: 'cancel' }
+          if (!review.ok) return failed(exec, review.error, review.route)
+          const { decision } = review
+          // The permission owner pins an approval policy into every published Session.
+          if (decision.decision === 'deny' && ctx.approval.overrideOf(agent.session) === 'never') {
+            return denied(exec, decision.reason)
+          }
+          const downstream = await next()
+          if (isAborted(lifecycle.signal)) return { kind: 'cancel' }
+          if (decision.decision === 'allow' || downstream.kind !== 'allow') return downstream
+          return askUser(exec, decision.reason)
+        } finally {
+          active.delete(completed.promise)
+          completed.resolve()
+        }
+      }, { prepend: true })
+      yield stopListener
+      let stopContribution: () => Promise<void>
       try {
-        const signal = AbortSignal.any([exec.signal, lifecycle.signal])
-        const review = await classifyRisk(
-          ctx, agent, exec, signal, reviewerRouteTable, fallbackReasoningEffort,
+        // A single-slot registration: the official layer holding it throws here,
+        // and the guidance below is the only thing that tells the person how to
+        // hand the preset over. Never swallow this into a silent no-load.
+        stopContribution = permissionPresets.registerAuto(() => {
+          if (!accepting) throw new Error('auto-review-plus: integration is closing')
+        })
+      } catch (error) {
+        ctx.logger.error(
+          'auto-review-plus: cannot take over the "auto" preset — the official '
+          + '@deepseek-ai/dsh-experimental-auto-review layer is still active. '
+          + 'Disable its row (disabled: true) or remove it from the profile bundles.',
+          error,
         )
-        if (isAborted(lifecycle.signal)) return { kind: 'cancel' }
-        if (!review.ok) return failed(exec, review.error, review.route)
-        const { decision } = review
-        // The permission owner pins an approval policy into every published Session.
-        if (decision.decision === 'deny' && ctx.approval.overrideOf(agent.session) === 'never') {
-          return denied(exec, decision.reason)
-        }
-        const downstream = await next()
-        if (isAborted(lifecycle.signal)) return { kind: 'cancel' }
-        if (decision.decision === 'allow' || downstream.kind !== 'allow') return downstream
-        return askUser(exec, decision.reason)
-      } finally {
-        active.delete(completed.promise)
-        completed.resolve()
+        // Standing down must not leave this gate armed. `current(session)` returns
+        // "auto" whenever ANY layer registered the preset, so a surviving listener
+        // would review every Auto call a second time on top of the official gate
+        // (two reviewer requests per call, and either denial wins). The disposer is
+        // idempotent and the effect below still owns it.
+        stopListener()
+        return
       }
-    }, { prepend: true })
-    yield stopListener
-    let stopContribution: () => Promise<void>
-    try {
-      // A single-slot registration: the official layer holding it throws here,
-      // and the guidance below is the only thing that tells the person how to
-      // hand the preset over. Never swallow this into a silent no-load.
-      stopContribution = permissionPresets.registerAuto(() => {
-        if (!accepting) throw new Error('auto-review-plus: integration is closing')
-      })
-    } catch (error) {
-      ctx.logger.error(
-        'auto-review-plus: cannot take over the "auto" preset — the official '
-        + '@deepseek-ai/dsh-experimental-auto-review layer is still active. '
-        + 'Disable its row (disabled: true) or remove it from the profile bundles.',
-        error,
-      )
-      // Standing down must not leave this gate armed. `current(session)` returns
-      // "auto" whenever ANY layer registered the preset, so a surviving listener
-      // would review every Auto call a second time on top of the official gate
-      // (two reviewer requests per call, and either denial wins). The disposer is
-      // idempotent and the effect below still owns it.
-      stopListener()
-      return
-    }
-    yield stopContribution
-    yield async () => {
-      accepting = false
-      try {
-        for (const session of ctx.sessions.list()) {
-          if (permissionPresets.current(session) !== AUTO_PRESET) continue
-          permissionPresets.set(session, 'danger-full-access')
+      yield stopContribution
+      yield async () => {
+        try {
+          accepting = false
+          try {
+            for (const session of ctx.sessions.list()) {
+              if (permissionPresets.current(session) !== AUTO_PRESET) continue
+              permissionPresets.set(session, 'danger-full-access')
+            }
+          } finally {
+            lifecycle.abort(new Error('auto-review-plus integration disposed'))
+            await Promise.allSettled([...active])
+          }
+        } finally {
+          // Closed here as well as by the disposer yielded first: cordis disposes
+          // one effect's disposables as a promise chain, so a REJECTING teardown
+          // short-circuits every later disposer (verified: the domain close and
+          // the listener removal never ran). Without this the domain would stay
+          // open and the next mount would fail with `already-open`. `Domain.close()`
+          // is idempotent, so the safety-net disposer costs nothing.
+          await domain.close()
         }
-      } finally {
-        lifecycle.abort(new Error('auto-review-plus integration disposed'))
-        await Promise.allSettled([...active])
       }
-    }
-  }, 'auto-review-plus lifecycle')
+    }, 'auto-review-plus lifecycle')
+  } catch (error) {
+    await domain.close()
+    throw error
+  }
 }
