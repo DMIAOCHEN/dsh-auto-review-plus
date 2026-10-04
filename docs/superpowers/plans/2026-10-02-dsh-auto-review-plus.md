@@ -1250,5 +1250,6 @@ Expected: `publish` 工作流成功，npm 上出现 `dsh-auto-review-plus@0.1.0`
 | 9 | Task 7 | Remote 方法的挂载方式以复制进来的宿主半实际结构为准（官方 auto-review 未必是 class-with-`this.ctx`） |
 | 10 | Task 0/Task 1 | `npm install` 在本沙箱需 `--ignore-scripts` 且缓存指向工作区内目录 |
 | 11 | Task 1 Step 9 | `*.tgz` 加入 `.gitignore` |
+| 12 | Task 4 | `zod` 依赖用**精确 `4.6.5`**（简报原写 `^3.23.0`）：`@deepseek-ai/dsh-session-projection` 自身依赖 zod 4，`ProjectionDefinition.stateSchema` 的类型即 zod 的 `ZodType`，装 v3 会造成双实例类型身份不匹配、typecheck 必失败；且本项目无 lockfile、依赖一律精确固定 |
 
 
