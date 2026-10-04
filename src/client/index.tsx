@@ -24,7 +24,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 // Type-only: pulls the conversation-owned permission slot declaration into this
 // package's Client face.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'

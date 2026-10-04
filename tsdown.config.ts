@@ -46,15 +46,82 @@ function styleInjectionModule(id, fileId, css, classMap) {
 }
 
 /**
+ * Rewrite `.class` selectors in one stylesheet while leaving every context a
+ * global replace would corrupt verbatim: comments, quoted strings, `url(…)`
+ * targets and `:global(…)` escape hatches. The upstream lightningcss parser
+ * draws the same boundaries; rewriting a comment's prose (or a `url()` path)
+ * would otherwise emit ghost class names and, in a `content`/`url` value, an
+ * actual behavioural difference.
+ * @param source - stylesheet text.
+ * @param rename - maps one local class name to its emitted name.
+ * @returns the rewritten stylesheet.
+ */
+function rewriteClassSelectors(source, rename) {
+  let out = ''
+  let index = 0
+  const copyBalancedParens = () => {
+    let depth = 1
+    while (index < source.length && depth > 0) {
+      const char = source[index++]
+      out += char
+      if (char === '(') depth += 1
+      else if (char === ')') depth -= 1
+    }
+  }
+  while (index < source.length) {
+    const char = source[index]
+    if (char === '/' && source[index + 1] === '*') {
+      const end = source.indexOf('*/', index + 2)
+      const stop = end === -1 ? source.length : end + 2
+      out += source.slice(index, stop)
+      index = stop
+      continue
+    }
+    if (char === '"' || char === "'") {
+      out += char
+      index += 1
+      while (index < source.length) {
+        const inner = source[index++]
+        out += inner
+        if (inner === '\\') {
+          if (index < source.length) { out += source[index]; index += 1 }
+          continue
+        }
+        if (inner === char) break
+      }
+      continue
+    }
+    const opener = source.startsWith(':global(', index)
+      ? ':global('
+      : source.slice(index, index + 4).toLowerCase() === 'url(' ? 'url(' : undefined
+    if (opener !== undefined) {
+      out += opener
+      index += opener.length
+      copyBalancedParens()
+      continue
+    }
+    // A selector needs a letter or underscore after the dot, so decimals like
+    // `0.2px` are never touched.
+    const selector = char === '.' ? /^\.([A-Za-z_][A-Za-z0-9_-]*)/.exec(source.slice(index)) : null
+    if (selector !== null) {
+      out += `.${rename(selector[1])}`
+      index += selector[0].length
+      continue
+    }
+    out += char
+    index += 1
+  }
+  return out
+}
+
+/**
  * Compile `*.module.css` into a hashed class map plus one tagged style
  * injection, without a CSS toolchain dependency.
  *
  * The shell compiles its own client bundles with lightningcss; this package
  * cannot add that dependency, so the class-name rewrite is done here with a
- * deliberate, narrow rule: only `.identifier` occurrences that are not followed
- * by another identifier character are rewritten (`.trigger` never matches
- * inside `.triggerIcon`, and `0.2px` never matches at all). Names are hashed
- * per file exactly as CSS Modules does, so two plugins' sheets cannot collide.
+ * deliberate, narrow rule (see {@link rewriteClassSelectors}). Names are hashed
+ * per file the way CSS Modules does, so two plugins' sheets cannot collide.
  * @param id - plugin id stamped on the injected tag.
  * @param root - package root; virtual ids are relative to it so the emitted
  * bundle never carries the build machine's directory.
@@ -83,16 +150,7 @@ function cssModulesPlugin(id, root) {
       // the id keeps two plugins' identical sheets from colliding.
       const hash = createHash('sha1').update(`${id}\n${source}`).digest('hex').slice(0, 6)
       const classMap = {}
-      for (const local of new Set([...source.matchAll(/\.([A-Za-z_][A-Za-z0-9_-]*)/g)].map(match => match[1]))) {
-        classMap[local] = `${hash}_${local}`
-      }
-      let compiled = source
-      for (const local of Object.keys(classMap).sort((left, right) => right.length - left.length)) {
-        compiled = compiled.replaceAll(
-          new RegExp(`\\.${local}(?![A-Za-z0-9_-])`, 'g'),
-          `.${classMap[local]}`,
-        )
-      }
+      const compiled = rewriteClassSelectors(source, local => (classMap[local] ??= `${hash}_${local}`))
       return styleInjectionModule(id, fileId, compiled, classMap)
     },
   }
