@@ -2,3 +2,5 @@ node_modules/
 *.log
 .DS_Store
 coverage/
+# not committed: a mirror-resolved lockfile would pin CI to a third-party registry; devDependencies are exact instead
+package-lock.json
