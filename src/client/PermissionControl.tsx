@@ -43,7 +43,10 @@ import {
   displayPermissionPreset,
   FULL_ACCESS_PRESET as FULL_ACCESS,
 } from './presentation.ts'
-import type { ReviewerRouteApi, ReviewerRouteValue } from './remote.ts'
+import type { ReviewerRouteApi, ReviewerRouteValue, ReviewerRouteView } from './remote.ts'
+import {
+  planReviewerRouteAdoption, reviewerRouteChooserFailure, runReviewerRouteAdoption,
+} from './reviewer-route-chooser.ts'
 import { ReviewerRouteDialog } from './ReviewerRouteDialog.tsx'
 import { ReviewerRoutePrompts, shouldPromptReviewerRoute } from './reviewer-route-prompt.ts'
 import { useReviewerRoute } from './use-reviewer-route.ts'
@@ -117,6 +120,10 @@ export function PermissionControl({
   const [reviewerWriting, setReviewerWriting] = useState(false)
   const [reviewerWriteFailure, setReviewerWriteFailure] = useState<string | null>(null)
   const reviewerPrompts = useRef(new ReviewerRoutePrompts())
+  /** The host answer already adopted, so one answer loads its dependencies once. */
+  const adoptedView = useRef<ReviewerRouteView | null>(null)
+  /** Whether the person already edited the chooser in this opening. */
+  const reviewerEdited = useRef(false)
   const autoActive = selection?.currentValue === AUTO_REVIEW
   // Loaded while a chooser is on screen: the Auto risk gate opens before the
   // host has answered, the automatic prompt only opens after it has.
@@ -133,11 +140,29 @@ export function PermissionControl({
     setConfirmation(null)
   }, [catalog, confirmation, locked, selection])
 
-  // Adopt the host's pin whenever its answer lands while a chooser is open.
+  // Adopt the host's pin whenever its answer lands while a chooser is open. The
+  // adoption goes through the SAME loads a pick does — a pinned provider's model
+  // list and its model's capability — because a chooser that only assigned the
+  // draft would show a valid pin as an unavailable route.
   useEffect(() => {
     if (confirmation !== AUTO_REVIEW && !reviewerPrompt) return
-    if (reviewerRouteState.view === null) return
-    setReviewerDraft(reviewerRouteState.view.route)
+    const view = reviewerRouteState.view
+    const plan = planReviewerRouteAdoption({
+      view,
+      edited: reviewerEdited.current,
+      adopted: adoptedView.current,
+    })
+    if (plan.kind === 'wait') return
+    if (view !== null) adoptedView.current = view
+    runReviewerRouteAdoption(plan, {
+      setDraft: setReviewerDraft,
+      loadModels: reviewerRouteState.selectProvider,
+      loadEfforts: reviewerRouteState.selectRoute,
+    })
+    // The dependency list names the answer's identity alone on purpose: the
+    // loader functions are stable (they are `useCallback`s over the session id),
+    // while the object holding them is rebuilt every render, so listing it would
+    // re-run this effect on every render.
   }, [confirmation, reviewerPrompt, reviewerRouteState.view])
 
   // Ask once per session, the first time Auto is active without a pin.
@@ -148,6 +173,7 @@ export function PermissionControl({
       answered: reviewerPrompts.current.isAnswered(sessionId),
       dialogOpen: confirmation !== null || reviewerPrompt,
     })) return
+    reviewerEdited.current = false
     setReviewerDraft(null)
     setReviewerWriteFailure(null)
     setReviewerPrompt(true)
@@ -198,7 +224,7 @@ export function PermissionControl({
     }
     if (id === FULL_ACCESS || id === AUTO_REVIEW) {
       setAcknowledged(false)
-      if (id === AUTO_REVIEW) setReviewerDraft(pinnedRoute ?? null)
+      if (id === AUTO_REVIEW) openReviewerGate()
       setConfirmation(id)
       return
     }
@@ -212,8 +238,9 @@ export function PermissionControl({
 
   /**
    * Persist one reviewer route (null resets to following the session model).
-   * The failure is reported to the caller AND left on screen, so the automatic
-   * prompt can keep its dialog open instead of closing as if it had written.
+   * The failure is reported to the caller AND left on screen, so the dialog
+   * that triggered the write keeps the message instead of closing as if it had
+   * stored something.
    * @param route - route to pin, or null to follow the session route.
    * @returns resolution after the write, or rejection after recording its message.
    */
@@ -234,17 +261,37 @@ export function PermissionControl({
    */
   const acceptReviewerWrite = (): void => { reviewerRouteState.reload() }
 
-  const changeReviewerDraft = (route: ReviewerRouteValue | null): void => {
-    setReviewerDraft(route)
-    if (route !== null) reviewerRouteState.selectRoute(route)
+  /** Start a chooser opening: no edit yet and no stale write failure. */
+  const beginReviewerChooser = (): void => {
+    reviewerEdited.current = false
+    setReviewerWriteFailure(null)
   }
 
-  /** Open the chooser on demand (Auto is already active and wants another model). */
+  /**
+   * Open the Auto risk gate. The hook loads on the enable transition this
+   * causes, so no extra read is issued here.
+   */
+  const openReviewerGate = (): void => {
+    beginReviewerChooser()
+    setReviewerDraft(pinnedRoute ?? null)
+  }
+
+  /**
+   * Open the chooser on demand (Auto is already active and wants another model).
+   * The reload is what makes the adoption run again with fresh data: adoption is
+   * driven by the identity of the host's answer.
+   */
   const openReviewerPrompt = (): void => {
+    beginReviewerChooser()
     reviewerRouteState.reload()
     setReviewerDraft(pinnedRoute ?? null)
-    setReviewerWriteFailure(null)
     setReviewerPrompt(true)
+  }
+
+  const changeReviewerDraft = (route: ReviewerRouteValue | null): void => {
+    reviewerEdited.current = true
+    setReviewerDraft(route)
+    if (route !== null) reviewerRouteState.selectRoute(route)
   }
 
   const closeReviewerPrompt = (): void => {
@@ -268,20 +315,20 @@ export function PermissionControl({
   }
 
   const confirmSelection = (id: string): void => {
-    const draft = reviewerDraft
-    if (id === AUTO_REVIEW) reviewerPrompts.current.answer(sessionId)
-    closeConfirmation()
     if (id !== AUTO_REVIEW) {
+      closeConfirmation()
       submit(id)
       return
     }
-    // Pin first, then switch the preset, so the automatic prompt finds a
-    // durable answer. A failed preference write must NOT block the permission
-    // switch — Auto review works without a pin by using the session's own
-    // route, and the person just answered explicitly either way.
+    const draft = reviewerDraft
+    reviewerPrompts.current.answer(sessionId)
+    // Pin first, then switch the preset, so the automatic prompt finds a durable
+    // answer. The dialog stays up until the write settles: the person chose a
+    // reviewer model IN this dialog, so a failed write must be visible (and
+    // retryable) instead of enabling Auto as if the choice had been stored.
     void writeReviewerRoute(draft).then(
-      () => { acceptReviewerWrite(); submit(id) },
-      () => { submit(id) },
+      () => { acceptReviewerWrite(); closeConfirmation(); submit(id) },
+      () => undefined,
     )
   }
 
@@ -345,11 +392,17 @@ export function PermissionControl({
           }}
           loading={reviewerRouteState.view === null && reviewerRouteState.failure === null}
           disabled={locked || reviewerWriting}
-          failure={reviewerRouteState.failure}
+          // The write failure belongs to THIS dialog too: the person chose the
+          // route here, so a rejected write must not vanish with the gate.
+          failure={reviewerRouteChooserFailure({
+            write: reviewerWriteFailure,
+            read: reviewerRouteState.failure,
+          })}
           value={reviewerDraft}
           sessionRoute={reviewerRouteState.view?.sessionRoute ?? null}
           providers={reviewerRouteState.providers}
           models={reviewerRouteState.models}
+          modelsProvider={reviewerRouteState.modelsProvider}
           reasoningEfforts={reviewerRouteState.reasoningEfforts}
           t={t}
           onProviderChange={reviewerRouteState.selectProvider}
@@ -380,11 +433,15 @@ export function PermissionControl({
         risk={undefined}
         loading={reviewerRouteState.view === null && reviewerRouteState.failure === null}
         disabled={locked || reviewerWriting}
-        failure={reviewerWriteFailure ?? reviewerRouteState.failure}
+        failure={reviewerRouteChooserFailure({
+          write: reviewerWriteFailure,
+          read: reviewerRouteState.failure,
+        })}
         value={reviewerDraft}
         sessionRoute={reviewerRouteState.view?.sessionRoute ?? null}
         providers={reviewerRouteState.providers}
         models={reviewerRouteState.models}
+        modelsProvider={reviewerRouteState.modelsProvider}
         reasoningEfforts={reviewerRouteState.reasoningEfforts}
         t={t}
         onProviderChange={reviewerRouteState.selectProvider}

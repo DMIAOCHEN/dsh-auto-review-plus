@@ -19,6 +19,23 @@ import type { ReviewerRoute } from './reviewer-route.ts'
 export type RouteRegistry = Pick<Context['llm'], 'listProviders' | 'listModels'>
 
 /**
+ * Whether one wire value is a concrete route this API can validate.
+ *
+ * A Remote call may omit the field outright (an SRC descriptor cannot see which
+ * parameters are optional) or send a non-object, and neither is a route. This
+ * is a type predicate rather than a convenience: it makes the rejection below a
+ * named route error instead of a `TypeError` from reading a property of nothing.
+ * @param value - decoded wire value of the `route` field.
+ * @returns true when the value carries a provider string and a model string.
+ */
+export function isReviewerRoute(value: unknown): value is ReviewerRoute {
+  return typeof value === 'object'
+    && value !== null
+    && typeof Reflect.get(value, 'provider') === 'string'
+    && typeof Reflect.get(value, 'model') === 'string'
+}
+
+/**
  * Reject a reviewer route this host cannot currently serve.
  *
  * The check is the same one the GUI picker implies — a provider route the
@@ -32,11 +49,14 @@ export type RouteRegistry = Pick<Context['llm'], 'listProviders' | 'listModels'>
  * adapter fault behind a user-input error. It propagates unchanged and the
  * caller's write does not happen, which is the fail-closed direction.
  * @param llm - live LLM registry.
- * @param route - candidate provider/model pair.
+ * @param route - candidate provider/model pair, as it arrived on the wire.
  * @returns resolution when the registry serves the exact route.
- * @throws a TypeError-shaped Error naming `provider/model` when it does not.
+ * @throws an Error naming the defect or the `provider/model` pair it refused.
  */
-export async function assertKnownRoute(llm: RouteRegistry, route: ReviewerRoute): Promise<void> {
+export async function assertKnownRoute(llm: RouteRegistry, route: unknown): Promise<void> {
+  if (!isReviewerRoute(route)) {
+    throw new Error(`auto-review-plus: a reviewer route needs a provider and a model, got ${JSON.stringify(route) ?? 'undefined'}`)
+  }
   if (!llm.listProviders().some(provider => provider.id === route.provider)) {
     throw new Error(`auto-review-plus: unknown reviewer route "${route.provider}/${route.model}"`)
   }

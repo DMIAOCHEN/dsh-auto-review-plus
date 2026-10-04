@@ -4,12 +4,14 @@
  * reasoning efforts) so opening the dialog never enumerates every model of
  * every provider.
  *
- * Every load is fenced by one generation counter: switching sessions, closing
- * the dialog, or picking another provider must not let a late answer overwrite
- * what is on screen now.
+ * Every load is fenced by its own kind (`ReviewerRouteLoadFences`): a newer
+ * start of the same kind discards the older answer, while the two loads an
+ * adopted route needs — its provider's model list and its model's capability —
+ * cannot invalidate each other.
  * @module dsh-auto-review-plus/client/use-reviewer-route
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { ReviewerRouteLoadFences } from './reviewer-route-chooser.ts'
 import type {
   ReviewerModelView,
   ReviewerProviderView,
@@ -18,14 +20,21 @@ import type {
   ReviewerRouteView,
 } from './remote.ts'
 
-/** What the chooser renders and the writes it triggers. */
+/** What the chooser renders and the loads it triggers. */
 export interface ReviewerRouteState {
   /** Host answer about the pinned and session routes, or null before one. */
   readonly view: ReviewerRouteView | null
   /** Provider routes this host serves. */
   readonly providers: readonly ReviewerProviderView[]
-  /** Advertised models of the provider currently chosen in the picker. */
+  /** Advertised models of {@link modelsProvider}; empty before one arrives. */
   readonly models: readonly ReviewerModelView[]
+  /**
+   * Provider whose model list {@link models} belongs to, or null. Set only once
+   * a list has actually arrived, so the chooser can tell "this provider's list
+   * has not arrived" apart from "this model is not in the list" — two sentences
+   * that must not be confused for a valid pin.
+   */
+  readonly modelsProvider: string | null
   /** Reasoning efforts of the model currently chosen in the picker. */
   readonly reasoningEfforts: readonly string[]
   /** Human-readable failure of the last read, or null. */
@@ -58,18 +67,23 @@ export function useReviewerRoute(
   const [view, setView] = useState<ReviewerRouteView | null>(null)
   const [providers, setProviders] = useState<readonly ReviewerProviderView[]>([])
   const [models, setModels] = useState<readonly ReviewerModelView[]>([])
+  const [modelsProvider, setModelsProvider] = useState<string | null>(null)
   const [reasoningEfforts, setReasoningEfforts] = useState<readonly string[]>([])
   const [failure, setFailure] = useState<string | null>(null)
   // The injected face is rebuilt by the slot host on every render, so the
   // loaders must not depend on its identity; the ref carries the live one.
   const apiRef = useRef(api)
   apiRef.current = api
-  const generation = useRef(0)
+  const fences = useRef(new ReviewerRouteLoadFences())
 
   const reload = useCallback((): void => {
-    const mine = ++generation.current
-    const current = (): boolean => generation.current === mine
+    // A fresh answer replaces every load started for the previous one.
+    fences.current.invalidateAll()
+    const current = fences.current.start('answer')
     setFailure(null)
+    setModels([])
+    setModelsProvider(null)
+    setReasoningEfforts([])
     void apiRef.current.view(sessionId).then(
       (next) => { if (current()) setView(next) },
       (error: unknown) => {
@@ -89,27 +103,33 @@ export function useReviewerRoute(
   useEffect(() => {
     if (!enabled) return
     reload()
-    return () => { generation.current += 1 }
+    return () => { fences.current.invalidateAll() }
   }, [enabled, reload])
 
   const selectProvider = useCallback((provider: string): void => {
-    const mine = generation.current
-    const current = (): boolean => generation.current === mine
+    const current = fences.current.start('models')
     setModels([])
+    // No provider owns a list until one arrives: claiming `provider` here would
+    // let an empty (still loading) list read as "this model is unavailable".
+    setModelsProvider(null)
     setReasoningEfforts([])
     void apiRef.current.models(provider).then(
-      (next) => { if (current()) setModels(next) },
+      (next) => {
+        if (!current()) return
+        setModels(next)
+        setModelsProvider(provider)
+      },
       (error: unknown) => {
         if (!current()) return
         setModels([])
+        setModelsProvider(null)
         setFailure(messageOf(error))
       },
     )
   }, [])
 
   const selectRoute = useCallback((route: ReviewerRouteValue): void => {
-    const mine = generation.current
-    const current = (): boolean => generation.current === mine
+    const current = fences.current.start('efforts')
     setReasoningEfforts([])
     void apiRef.current.modelInfo(route.provider, route.model).then(
       // A capability read that fails is not a reason to refuse the route: the
@@ -119,5 +139,8 @@ export function useReviewerRoute(
     )
   }, [])
 
-  return { view, providers, models, reasoningEfforts, failure, reload, selectProvider, selectRoute }
+  return {
+    view, providers, models, modelsProvider, reasoningEfforts, failure,
+    reload, selectProvider, selectRoute,
+  }
 }

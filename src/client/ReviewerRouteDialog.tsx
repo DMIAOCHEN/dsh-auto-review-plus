@@ -47,6 +47,8 @@ export interface ReviewerRouteDialogProps {
   readonly sessionRoute: ReviewerRouteValue | null
   readonly providers: readonly ReviewerProviderView[]
   readonly models: readonly ReviewerModelView[]
+  /** Provider whose model list {@link models} belongs to, or null while unknown. */
+  readonly modelsProvider: string | null
   readonly reasoningEfforts: readonly string[]
   readonly t: TranslateNS<typeof PERMISSION_ACCESS_NS>
   readonly onProviderChange: (provider: string) => void
@@ -62,7 +64,7 @@ export interface ReviewerRouteDialogProps {
  */
 export function ReviewerRouteDialog({
   open, title, confirmLabel, risk, loading, disabled, failure,
-  value, sessionRoute, providers, models, reasoningEfforts, t,
+  value, sessionRoute, providers, models, modelsProvider, reasoningEfforts, t,
   onProviderChange, onChange, onCancel, onConfirm,
 }: ReviewerRouteDialogProps): ReactNode {
   return (
@@ -103,6 +105,7 @@ export function ReviewerRouteDialog({
           sessionRoute={sessionRoute}
           providers={providers}
           models={models}
+          modelsProvider={modelsProvider}
           reasoningEfforts={reasoningEfforts}
           disabled={disabled}
           t={t}

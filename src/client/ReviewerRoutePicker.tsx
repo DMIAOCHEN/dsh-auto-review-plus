@@ -24,8 +24,14 @@ export interface ReviewerRoutePickerProps {
   readonly sessionRoute: ReviewerRouteValue | null
   /** Provider routes the host serves. */
   readonly providers: readonly ReviewerProviderView[]
-  /** Models of the chosen provider route. */
+  /** Models of {@link modelsProvider}, empty until that list arrives. */
   readonly models: readonly ReviewerModelView[]
+  /**
+   * Provider whose model list {@link models} belongs to, or null while none has
+   * arrived. Without it a list that is merely not loaded yet would read as "this
+   * model is unavailable".
+   */
+  readonly modelsProvider: string | null
   /** Reasoning efforts of the chosen model, in adapter order. */
   readonly reasoningEfforts: readonly string[]
   /** Whether the choice cannot be edited right now (locked session, write in flight). */
@@ -62,7 +68,8 @@ function selectionOf(value: ReviewerRouteValue | null): Selection {
  * @returns the chooser's form rows.
  */
 export function ReviewerRoutePicker({
-  value, sessionRoute, providers, models, reasoningEfforts, disabled, t, onProviderChange, onChange,
+  value, sessionRoute, providers, models, modelsProvider, reasoningEfforts, disabled, t,
+  onProviderChange, onChange,
 }: ReviewerRoutePickerProps): ReactNode {
   const [selection, setSelection] = useState<Selection>(() => selectionOf(value))
   // The last value this component reported, so an echo of our own report is not
@@ -80,17 +87,18 @@ export function ReviewerRoutePicker({
     onChange(next)
   }
 
-  // A provider whose models just arrived completes the selection with its first
-  // model: a provider without a model is not a route, and "follow the session
-  // model" is what the parent holds until a complete route exists.
+  // A provider whose model list just arrived completes the selection with its
+  // first model: a provider without a model is not a route, and "follow the
+  // session model" is what the parent holds until a complete route exists.
   useEffect(() => {
     if (selection.kind !== 'custom' || selection.model !== '') return
+    if (modelsProvider !== selection.provider) return
     const [first] = models
     if (first === undefined) return
     const next = { provider: selection.provider, model: first.id }
     setSelection({ kind: 'custom', ...next })
     report(next)
-  }, [models, selection])
+  }, [models, modelsProvider, selection])
 
   const chooseProvider = (next: string): void => {
     if (next === '') {
@@ -112,11 +120,21 @@ export function ReviewerRoutePicker({
   const providerValue = selection.kind === 'follow' ? '' : selection.provider
   const modelValue = selection.kind === 'custom' ? selection.model : ''
   const customModel = selection.kind === 'custom' && selection.model !== '' ? selection.model : ''
+  /**
+   * Whether the model list on screen belongs to the provider being shown. Until
+   * it does, the chooser is waiting for that list rather than being told the
+   * model is gone — the two are different sentences, and a valid pin adopted
+   * from the host must not momentarily read as unavailable.
+   */
+  const modelsForSelection = selection.kind === 'custom' && modelsProvider === selection.provider
+  const listing = modelsForSelection ? models : []
   // A pin this host no longer advertises still has to be visible and selectable
   // — silently dropping it would hide what the session is actually pinned to,
   // and a `value` without a matching option renders as an empty control.
   const missingProvider = providerValue !== '' && !providers.some(provider => provider.id === providerValue)
-  const missingModel = customModel !== '' && !models.some(model => model.id === customModel)
+  const missingModel = modelsForSelection && customModel !== '' && !listing.some(model => model.id === customModel)
+  const modelsPending = selection.kind === 'custom' && !modelsForSelection
+  const modelSelectDisabled = disabled || selection.kind === 'follow' || !modelsForSelection || listing.length === 0
   const sessionRouteLabel = sessionRoute === null
     ? t('reviewerRoute.followSession')
     : `${sessionRoute.provider} / ${sessionRoute.model}`
@@ -144,20 +162,24 @@ export function ReviewerRoutePicker({
         <span className={css.label}>{t('reviewerRoute.model')}</span>
         <select
           className={css.select}
-          disabled={disabled || selection.kind === 'follow' || (models.length === 0 && !missingModel)}
+          disabled={modelSelectDisabled}
           value={modelValue}
           onChange={(event) => { chooseModel(event.currentTarget.value) }}
         >
           {selection.kind === 'follow'
             ? <option value="">{sessionRouteLabel}</option>
             : null}
-          {selection.kind === 'custom' && selection.model === ''
-            ? <option value="">{t('reviewerRoute.loading')}</option>
+          {selection.kind === 'custom' && (selection.model === '' || modelsPending)
+            ? (
+              <option value={selection.model}>
+                {modelsForSelection ? t('reviewerRoute.unknownRoute') : t('reviewerRoute.loading')}
+              </option>
+            )
             : null}
-          {selection.kind === 'custom'
-            ? models.map(model => <option key={model.id} value={model.id}>{model.name}</option>)
+          {selection.kind === 'custom' && modelsForSelection
+            ? listing.map(model => <option key={model.id} value={model.id}>{model.name}</option>)
             : null}
-          {selection.kind === 'custom' && missingModel
+          {missingModel
             ? <option value={customModel}>{t('reviewerRoute.unknownRoute')}</option>
             : null}
         </select>
