@@ -1,0 +1,58 @@
+/* The reviewer-route dialog body. The dialog chrome (card, header, footer,
+   Escape, mask) comes from ui-primitives' Modal, so only the body's own rows are
+   styled here — the risk warning mirrors the shipped confirmation's layout. */
+
+.dialog {
+  max-width: 420px;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.warning {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.warningIcon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.warning p {
+  margin: 0;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.failure {
+  margin: 0;
+  font-size: 12px;
+  color: #d9534f;
+}
+
+.capability {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.acknowledgement {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.action,
+.confirmAction {
+  min-width: 96px;
+}

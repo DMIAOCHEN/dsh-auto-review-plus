@@ -6,3 +6,5 @@ coverage/
 package-lock.json
 # not committed: `npm pack` output is a build product, installed from a tarball but never tracked
 *.tgz
+# not committed: the host half's `tsc` JavaScript intermediate, bundled into lib/index.js by `npm run build`
+build/

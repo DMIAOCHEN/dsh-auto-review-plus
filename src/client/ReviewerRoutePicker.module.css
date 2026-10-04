@@ -1,0 +1,41 @@
+/* The reviewer-model chooser rows. Rendered inside the primitives' dialog, so
+   only the chooser's own stack and its two native selects are styled here. */
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.label {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.select {
+  width: 100%;
+  min-height: 28px;
+  padding: 3px 6px;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.select:disabled {
+  opacity: 0.6;
+}
+
+.capability {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.7;
+}

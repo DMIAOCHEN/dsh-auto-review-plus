@@ -40,6 +40,7 @@ import {
   type AutoReviewDecision,
   type ReviewRequestInput,
 } from './review.ts'
+import { ReviewerRouteApi } from './reviewer-route-api.ts'
 import {
   autoReviewPlusDomainSpec,
   reviewerRoute,
@@ -711,6 +712,13 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // `Domain.close()` is idempotent, so the guard stays correct even if the
     // effect was already registered when something after it threw.
     const reviewerRouteTable = domain.table('routes')
+    // The browser-facing API is a Service of THIS fiber and takes the table by
+    // construction: no module-level singleton, and its lifetime is the fiber's,
+    // so it can never outlive the domain it reads (the domain's own disposer is
+    // yielded first below, i.e. disposed last). A `$mount`-ed client namespace
+    // resolves the endpoint through the live Service, so an API that failed to
+    // construct simply has no endpoint instead of a half-wired one.
+    new ReviewerRouteApi(ctx, reviewerRouteTable)
     let accepting = true
     const active = new Set<Promise<void>>()
     const lifecycle = new AbortController()

@@ -1,4 +1,13 @@
-/** `settings.permission` namespace dictionaries (the Permission row's copy). */
+/**
+ * Dictionaries owned by this plugin's client half.
+ *
+ * {@link PERMISSION_ACCESS_NS} carries the ported current-session picker copy
+ * (the verbatim upstream `permission.access` dictionaries plus the
+ * reviewer-route keys this plugin adds). {@link en} is NOT a registered
+ * namespace: it holds the shipped `settings.permission` labels the ported
+ * presentation helper falls back to when the host offers no localized preset
+ * name, which is why it is the only dictionary here that nothing registers.
+ */
 
 /**
  * Locale namespace owned by this plugin's current-session permission picker.
@@ -13,26 +22,22 @@
  */
 export const PERMISSION_ACCESS_NS = 'autoReviewPlus.permission'
 
-/** Simplified Chinese dictionary (the key-set source of truth). */
-export const zh = {
-  'title': '权限',
-  'description': '选择新会话的默认权限模式',
-  'loading': '加载中',
-  'unavailable': '不可用',
-  'preset.readOnly': '仅可查看',
-  'preset.workspaceWrite': '工作区内修改',
-  'preset.fullAccess': '完全权限',
-  'confirm.title': '确认启用完全权限？',
-  'confirm.description': '启用完全权限后，新会话将减少确认步骤，并且可以直接执行更多操作，包括敏感操作、文件修改或外部命令。仅建议在你信任后续任务时使用。',
-  'confirm.acknowledge': '我已了解风险，并愿意继续',
-  'confirm.cancel': '取消',
-  'confirm.enable': '启用完全权限',
-} satisfies Record<string, string>
+/** The shipped `settings.permission` namespace key union. */
+export type PermissionSettingsKey =
+  | 'title'
+  | 'description'
+  | 'loading'
+  | 'unavailable'
+  | 'preset.readOnly'
+  | 'preset.workspaceWrite'
+  | 'preset.fullAccess'
+  | 'confirm.title'
+  | 'confirm.description'
+  | 'confirm.acknowledge'
+  | 'confirm.cancel'
+  | 'confirm.enable'
 
-/** The settings.permission namespace key union. */
-export type PermissionSettingsKey = keyof typeof zh
-
-/** English dictionary, checked complete against the zh key set. */
+/** English labels of the shipped settings row, used as the preset fallbacks. */
 export const en = {
   'title': 'Permission',
   'description': 'Choose the default permission mode for new sessions',
@@ -67,6 +72,16 @@ export const accessZh = {
   'auto.confirm.description': 'Auto review 不使用沙箱。每次原生工具调用和 PTC 内层调用前，都会由与当前 agent 相同的模型进行审查；审查拒绝的调用由你批准或拒绝。此功能仍属实验性，可能误放行或误拒绝，并会消耗额外 token。',
   'auto.confirm.acknowledge': '我已了解这些风险，并愿意继续',
   'auto.confirm.enable': '启用 Auto review',
+  'auto.confirm.reviewerHint': '可指定用哪个模型做审查；本会话内固定生效，重开此弹框可改回跟随会话模型。',
+  'reviewerRoute.title': '审查模型',
+  'reviewerRoute.followSession': '跟随当前会话模型',
+  'reviewerRoute.provider': '服务商',
+  'reviewerRoute.model': '模型',
+  'reviewerRoute.reasoning': '思考级别',
+  'reviewerRoute.noReasoning': '该模型不暴露思考级别',
+  'reviewerRoute.unknownRoute': '该路由不可用',
+  'reviewerRoute.loading': '加载中',
+  'reviewerRoute.confirm': '确定',
 } satisfies Record<string, string>
 
 /** Current-session popup-gate key union. */
@@ -91,4 +106,14 @@ export const accessEn = {
   'auto.confirm.description': 'Auto review runs without a sandbox. Before every native tool call and PTC inner call, the same model as the current agent reviews whether to allow it; you approve or reject each call it denies. This feature is experimental, can falsely allow or deny actions, and uses additional tokens.',
   'auto.confirm.acknowledge': 'I understand these risks and want to continue',
   'auto.confirm.enable': 'Enable Auto review',
+  'auto.confirm.reviewerHint': 'You can choose which model reviews this session. The choice is fixed for this session; reopen this dialog to follow the session model again.',
+  'reviewerRoute.title': 'Review model',
+  'reviewerRoute.followSession': 'Follow the current session model',
+  'reviewerRoute.provider': 'Provider',
+  'reviewerRoute.model': 'Model',
+  'reviewerRoute.reasoning': 'Reasoning levels',
+  'reviewerRoute.noReasoning': 'This model exposes no reasoning levels',
+  'reviewerRoute.unknownRoute': 'This route is unavailable',
+  'reviewerRoute.loading': 'Loading',
+  'reviewerRoute.confirm': 'Confirm',
 } satisfies Record<PermissionAccessKey, string>

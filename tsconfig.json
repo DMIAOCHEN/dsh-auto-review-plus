@@ -11,5 +11,5 @@
     "types": ["node"]
   },
   "include": ["src", "tests"],
-  "exclude": ["src/client"]
+  "exclude": ["src/client", "tests/client"]
 }

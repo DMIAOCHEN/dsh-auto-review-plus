@@ -4,6 +4,6 @@
     "lib": ["ES2024", "DOM", "DOM.Iterable", "ESNext.Disposable"],
     "types": []
   },
-  "include": ["src/client"],
+  "include": ["src/client", "tests/client"],
   "exclude": []
 }

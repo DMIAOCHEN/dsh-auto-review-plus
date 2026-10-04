@@ -25,6 +25,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 // Type-only: pulls the conversation-owned permission slot declaration into this
 // package's Client face.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -36,11 +37,17 @@ import { PermissionCatalogDirectory } from './catalog.ts'
 import { PermissionControl } from './PermissionControl.tsx'
 import type { PermissionControlInjected } from './PermissionControl.tsx'
 import { accessEn, accessZh, PERMISSION_ACCESS_NS } from './locales.ts'
+import {
+  AUTO_REVIEW_PLUS_REMOTE,
+  type ReviewerRouteApi,
+} from './remote.ts'
 
 /** Required services (cordis fiber inject). */
 export const inject = [
   'connection', 'remote', 'remote.permissionPresets', 'sessions', 'slots', 'locale',
 ]
+
+export type { PermissionControlInjected, PermissionControlProps } from './PermissionControl.tsx'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -50,10 +57,27 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /**
+ * Unwrap one Remote result into a plain promise value.
+ * @param result - settled Remote call.
+ * @returns the business value.
+ * @throws the Remote failure.
+ */
+function unwrap<Value>(result: RemoteResult<Value>): Value {
+  if (!result.ok) throw result.error
+  return result.value
+}
+
+/**
  * Client plugin body: own the composer permission control.
+ *
+ * Async on purpose: this plugin's own Remote namespace has to be mounted before
+ * any chooser can read or write a reviewer route, and a mount that fails leaves
+ * the shipped control in place (nothing below has registered anything yet)
+ * instead of shadowing it with a half-wired one.
  * @param ctx - client root context.
  */
-export function apply(ctx: Context): void {
+export async function apply(ctx: Context): Promise<void> {
+  await ctx.remote.$mount(AUTO_REVIEW_PLUS_REMOTE)
   ctx.effect(
     () => ctx.locale.register(PERMISSION_ACCESS_NS, { zh: accessZh, en: accessEn }),
     'auto-review-plus: permission control dictionaries',
@@ -76,6 +100,18 @@ export function apply(ctx: Context): void {
     return true
   }
 
+  // `ctx.remote.autoReviewPlus` is typed by this plugin's own contribution
+  // declaration (`./remote.ts`), mounted just above in this fiber.
+  const reviewerRoute: ReviewerRouteApi = {
+    view: async sessionId => unwrap(await ctx.remote.autoReviewPlus.reviewerRouteView(sessionId)),
+    providers: async () => unwrap(await ctx.remote.autoReviewPlus.providers()),
+    models: async provider => unwrap(await ctx.remote.autoReviewPlus.models(provider)),
+    modelInfo: async (provider, model) => unwrap(await ctx.remote.autoReviewPlus.modelInfo(provider, model)),
+    set: async (sessionId, route) => {
+      unwrap(await ctx.remote.autoReviewPlus.setReviewerRoute(sessionId, route))
+    },
+  }
+
   ctx.slots.inject('conversation.input.permission', () => ctx.slots.register({
     name: 'conversation.input.permission',
     // Cell shadowing rank: ascending, lowest renders, so -1 replaces the shipped
@@ -85,6 +121,7 @@ export function apply(ctx: Context): void {
     inject: (sessionId: SessionId): PermissionControlInjected => ({
       hooks: { permissionCatalog: catalog.store },
       select: preset => submit(sessionId, preset),
+      reviewerRoute,
     }),
   }, PermissionControl))
 }

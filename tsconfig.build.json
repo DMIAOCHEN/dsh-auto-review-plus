@@ -1,0 +1,24 @@
+{
+  // JavaScript-emit program for the HOST half only. `npm run build` runs this
+  // first and bundles its output, mirroring the harness's own pipeline
+  // ("the ordinary workspace build consumes JavaScript emitted by the Host
+  // TypeScript project", tsdown.config.ts at the repository root): rolldown's
+  // TypeScript transform keeps standard decorators as native syntax, which
+  // Node cannot parse, while `tsc` downlevels them to its `__esDecorate`
+  // helpers. `rewriteRelativeImportExtensions` is what lets the emitted
+  // JavaScript keep this package's extension-ful relative imports.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "build/host",
+    "rootDir": "src",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "inlineSourceMap": false,
+    "rewriteRelativeImportExtensions": true,
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "exclude": ["src/client"]
+}

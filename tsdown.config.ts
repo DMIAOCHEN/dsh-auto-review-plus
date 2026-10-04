@@ -156,15 +156,23 @@ function cssModulesPlugin(id, root) {
   }
 }
 
-/** Host half: plain ESM, dsh peers stay external (same shape as the shipped plugin). */
+/**
+ * Host half: the JavaScript `tsc` emitted from `tsconfig.build.json`, bundled
+ * into one ESM file with every dsh peer left external. The intermediate is
+ * JavaScript on purpose: rolldown's own TypeScript transform keeps standard
+ * decorators as native syntax (`@Remote`), and Node parses no decorators at
+ * all, while `tsc` downlevels them to its `__esDecorate` helpers — the same
+ * shape the harness's own packages ship.
+ */
 const host = {
-  entry: ['src/index.ts'],
+  entry: ['build/host/index.js'],
   format: ['esm'],
   platform: 'node',
-  target: 'node20',
-  dts: { emitDtsOnly: false },
+  target: 'es2024',
+  dts: false,
   outDir: 'lib',
   external: [/^@deepseek-ai\//],
+  outputOptions: { entryFileNames: 'index.js' },
 }
 
 /** Client half: CJS bundle wrapped for the browser ModuleLoader (see scripts/wrap-client.mjs). */
@@ -190,4 +198,19 @@ const types = {
   outDir: 'lib/types',
 }
 
-export default defineConfig([host, client, types])
+/**
+ * The host entry's own declaration, next to `lib/index.js`. It used to ride the
+ * host bundle's `dts` emit; that bundle now starts from JavaScript, so the
+ * declaration is emitted from the TypeScript source instead (a JS entry has no
+ * types to emit).
+ */
+const rootTypes = {
+  entry: ['src/index.ts'],
+  format: ['es'],
+  platform: 'node',
+  target: 'node20',
+  dts: { emitDtsOnly: true },
+  outDir: 'lib',
+}
+
+export default defineConfig([host, client, types, rootTypes])
