@@ -168,7 +168,9 @@ Semantics:
   the reasoning level the session is using, that review is not ended: the plugin reports the level and the
   exact route, then retries the review **without** a reasoning effort. The call is still judged instead of
   being denied for a reason the reviewer never got to consider. The retry is one attempt, not a fallback
-  chain: if it fails too, that failure is the review's failure (reviews stay fail-closed).
+  chain: if it fails too, that failure is the review's failure (reviews stay fail-closed). It drops the
+  level **entirely** rather than switching to `fallbackReasoningEffort` — that fallback is only consulted
+  when the session pins no level at all.
 - **Asked once per visit.** The first time a session is in Auto review without a record, the chooser also
   opens by itself. That memory is component state, not a stored flag: one question per session per page
   load. Reloading the page asks again, because the missing record still means "follow".
@@ -273,9 +275,20 @@ keeps the gate from being advertised at all), so a storage failure has exactly t
 
 ### The package loaded but did not take over
 
-See [Take over from the official Auto review](#take-over-from-the-official-auto-review-mandatory): the log
-line `auto-review-plus: cannot take over the "auto" preset …` means the official row is still active, which
-is a bundle-order problem in `dsh.profile.bundles`.
+The `auto` preset has one slot, and it has exactly **two** possible holders: the official
+`@deepseek-ai/dsh-experimental-auto-review` layer, or **a previous instance of this package whose teardown
+threw before it released the slot** (a rejecting teardown short-circuits the later disposers). The log line
+names both, and asks you to restart before changing anything:
+
+```
+auto-review-plus: cannot take over the "auto" preset — its single slot is still held. Either the official @deepseek-ai/dsh-experimental-auto-review layer is still active, or a previous instance of this package failed to unload and never released the slot. Restart dsh first; if the conflict survives the restart, confirm the official row is disabled (disabled: true) or remove it from the profile bundles.
+```
+
+**Restart `dsh web` first.** If the line is gone afterwards, the cause was the stale instance — nothing else
+to do. If it survives the restart, the official row is genuinely still active: check the order in
+`dsh.profile.bundles` as described in
+[Take over from the official Auto review](#take-over-from-the-official-auto-review-mandatory) (the official
+row must come first) or remove the official package instead.
 
 ## Known limitations
 

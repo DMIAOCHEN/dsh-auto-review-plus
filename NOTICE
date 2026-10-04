@@ -9,11 +9,13 @@ copyright notice, reproduced verbatim as that license requires:
 
 Derived sources — left: this package, right: the upstream file it comes from:
 
-  packages/experimental/auto-review/src/index.ts
-      → src/index.ts          (adapted: the Auto admission gate, the pre-execute
-                               review listener, the session-history reading)
-      → src/review.ts         (adapted: the review request construction and the
-                               reviewer decision parsing)
+  packages/experimental/auto-review
+      → src/index.ts          (adapted from src/index.ts: the Auto admission gate,
+                               the pre-execute review listener, the session-history
+                               reading)
+      → src/review.ts         (adapted from src/index.ts: the review request
+                               construction and the reviewer decision parsing)
+      → locale/en.json, locale/zh.json   (verbatim from locale/en.json, locale/zh.json)
 
   packages/client/ui-permission-presets
       → src/client/PermissionControl.tsx         (ported from src/client/PermissionSelect.tsx)
@@ -24,16 +26,17 @@ Derived sources — left: this package, right: the upstream file it comes from:
       → src/client/index.tsx                     (the slot registration, the catalog
                                                   wiring and the `/permission <preset>`
                                                   write path, from src/client/index.ts)
-      → src/client/locales.ts                    (the `permission.access` dictionaries,
-                                                  verbatim from src/client/locales.ts)
-      → locale/en.json, locale/zh.json           (shipped locale strings)
+      → src/client/locales.ts                    (the `permission.access` key/value
+                                                  pairs verbatim, plus added keys and a
+                                                  renamed namespace, from src/client/locales.ts)
 
 Everything else under src/ is original to this package: the reviewer-route
 storage/API/validation modules and the reviewer-picker React components, with
 their stylesheets.
 
 Modifications: the review request carries the session id and the session's
-reasoning effort, adds a configurable fallback reasoning level, adds a
+reasoning effort, adds a configurable fallback reasoning level and a one-time
+retry that drops the session's level when the review route rejects it, adds a
 session-scoped reviewer route with a client picker (stored in a storage domain,
 one record per session, never as a session event), and shadows the permission
 slot to host that picker.

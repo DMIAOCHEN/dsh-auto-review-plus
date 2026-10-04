@@ -149,7 +149,8 @@ auto-review-plus: cannot take over the "auto" preset — the official @deepseek-
 - **路由拒绝会话的思考级别时，会重试一次**：若钉住的审查路由不支持该会话正在使用的思考级别，这次审查
   不会就此结束——插件会报告该级别与确切路由，然后**不带思考级别**重试这次审查。调用仍然会被审查，
   而不是因为审查者根本没机会考虑的理由被拒绝。这是一次重试，不是兜底链：重试本身若失败，这次审查
-  仍然是失败（审查保持 fail-closed）。
+  仍然是失败（审查保持 fail-closed）。它丢弃的是**整个级别**，而不是改用 `fallbackReasoningEffort`——
+  那个 fallback 只在会话完全没有钉住级别时才会被考虑。
 - **每次访问只问一次**：某个会话处于 Auto review 且没有记录时，选择器会自动弹出。这份记忆是组件内的
   状态、不是落盘的标记：每个会话每次页面加载问一次；刷新页面会再问一次（因为记录仍然缺失，仍然表示
   「跟随」）。
@@ -241,9 +242,18 @@ preset 即将消失；不处于 Auto review 的会话不受影响。
 
 ### 包装上了但没有接管
 
-见[必须停用官方 Auto review](#必须停用官方-auto-review强制)：日志里的
-`auto-review-plus: cannot take over the "auto" preset …` 说明官方那一行仍然生效，属于
-`dsh.profile.bundles` 的顺序问题。
+`auto` preset 只有一个槽位，而它**恰好只有两个**可能的持有者：官方的
+`@deepseek-ai/dsh-experimental-auto-review` 层，或者**本包上一个实例**——它的卸载过程抛错，因而从未释放
+这个槽位（抛错的 teardown 会短路后面的 disposer）。日志把两种成因都点出来了，并要求你先重启：
+
+```
+auto-review-plus: cannot take over the "auto" preset — its single slot is still held. Either the official @deepseek-ai/dsh-experimental-auto-review layer is still active, or a previous instance of this package failed to unload and never released the slot. Restart dsh first; if the conflict survives the restart, confirm the official row is disabled (disabled: true) or remove it from the profile bundles.
+```
+
+**先重启 `dsh web`。** 如果这句日志之后不再出现，成因就是那个残留实例，不需要再做别的。如果重启后它依然
+出现，那才是官方那一行真的仍然生效：按
+[必须停用官方 Auto review](#必须停用官方-auto-review强制) 检查 `dsh.profile.bundles` 的顺序（官方行必须在
+前），或者干脆把官方包移除。
 
 ## 已知限制
 
