@@ -216,6 +216,20 @@ versions always move:
   distinct version.
 - **Release:** bump the version itself (`0.1.0` → `0.1.1`) and tag the release.
 
+### Releasing (maintainers)
+
+`npm publish` is **off by default**, so pushing the release tag is a pure GitHub-first release: the
+`publish` workflow still runs every check (install → typecheck → test → build → the whole-`lib/` drift
+check → the tag-vs-`package.json` check → the pack-manifest guard) and then stops, logging a notice
+instead of uploading. To switch the upload on, set the repository **variable** `NPM_PUBLISH_ENABLED` to
+`true` (Settings → Secrets and variables → Actions → Variables); from the next tag every release also
+publishes to npm, tokenless, with provenance.
+
+The **first** publish is a one-time manual bootstrap and must happen **before** the variable is set: npm's
+Trusted Publishing is package-scoped and npm refuses to create a package from an OIDC-only publish, so
+someone has to `npm publish --access public` once from a tag checkout and configure the trusted publisher
+on npmjs.com. The `workflow_dispatch` dry run is not affected by the switch and stays available throughout.
+
 After installing a new build, **fully restart `dsh web`** again.
 
 ## Uninstall

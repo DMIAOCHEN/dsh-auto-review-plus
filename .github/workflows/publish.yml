@@ -1,15 +1,23 @@
-# Release pipeline: a `v*` tag (or a manual dry run) verifies the checkout and
-# publishes to npm through Trusted Publishing (OIDC).
+# Release pipeline: a `v*` tag (or a manual dry run) verifies the checkout and —
+# once npm publishing is switched on — publishes to npm through Trusted
+# Publishing (OIDC).
 #
 # Distribution is GitHub-first: `lib/` is committed, so
 # `dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus#v0.1.0`
-# installs straight from the tag with no build step on the user's machine. This
-# workflow exists so the same tag can also be published to npm.
+# installs straight from the tag with no build step on the user's machine.
 #
-# ⚠️ THE FIRST RELEASE IS A MANUAL BOOTSTRAP. npm's Trusted Publishing is
-# package-scoped, and npm refuses to CREATE a package from an OIDC-only publish,
-# so this workflow cannot publish `0.1.0` before the name exists. A human does
-# it once with a real credential:
+# npm publishing is OPT-IN and OFF by default. Pushing the release tag is the
+# GitHub-first path and must not turn red just because npm has not been set up:
+# every verification below still runs on a tag, but the upload only happens when
+# this repository variable exists and is exactly `true`
+# (Settings → Secrets and variables → Actions → Variables):
+#
+#   NPM_PUBLISH_ENABLED = true
+#
+# ⚠️ THE FIRST RELEASE IS A MANUAL BOOTSTRAP, and the switch goes on AFTER it.
+# npm's Trusted Publishing is package-scoped, and npm refuses to CREATE a package
+# from an OIDC-only publish, so this workflow cannot publish `0.1.0` before the
+# name exists. A human does it once with a real credential:
 #
 #   1. `npm publish --access public` from a clean tag checkout (one time only).
 #   2. npmjs.com → the package → Settings → Trusted Publisher → GitHub Actions:
@@ -17,7 +25,8 @@
 #        Repository:           dsh-auto-review-plus
 #        Workflow filename:    publish.yml
 #        Environment name:     (leave empty)
-#   3. Afterwards every `v*` tag publishes from here, tokenless, with provenance.
+#   3. Set the repository variable NPM_PUBLISH_ENABLED to `true`. From then on
+#      every `v*` tag publishes from here, tokenless, with provenance.
 #
 # No npm auth token — neither a workflow secret nor an environment variable —
 # appears anywhere below: the only authentication is the OIDC token minted for
@@ -92,6 +101,79 @@ jobs:
             exit 1
           fi
 
+      # The manifest/pack guard. Same program as ci.yml, deliberately duplicated
+      # (a shared action would need another file); the two copies are asserted
+      # byte-identical by the task's yaml checker, so they cannot drift.
+      # Unconditional on purpose: a tag must prove it is publishable whether or
+      # not the npm upload is switched on.
+      - name: Verify the manifest entry points and the packed file list
+        run: |
+          npm pack --dry-run --json > "$RUNNER_TEMP/pack.json"
+          cat > "$RUNNER_TEMP/verify-pack.mjs" <<'EOF'
+          import { existsSync, readFileSync } from 'node:fs'
+
+          // The published payload, in full. Derivation: package.json's `files`
+          // whitelist expands to 11 paths (`lib/types/**` and `locale/*` each
+          // contribute two) and npm always adds package.json itself; the count
+          // was confirmed once by hand against a real `npm pack --dry-run`
+          // (12 files). Keep this list in sync with `files` — that is the point.
+          const EXPECTED = [
+            'LICENSE',
+            'NOTICE',
+            'README.md',
+            'README.zh.md',
+            'cordis.patch.yml',
+            'lib/client.js',
+            'lib/index.js',
+            'lib/types/client/index.d.ts',
+            'lib/types/index.d.ts',
+            'locale/en.json',
+            'locale/zh.json',
+            'package.json',
+          ]
+
+          const manifest = JSON.parse(readFileSync('package.json', 'utf8'))
+          const refs = {
+            main: manifest.main,
+            types: manifest.types,
+            'exports["."].types': manifest.exports['.'].types,
+            'exports["."].default': manifest.exports['.'].default,
+            'exports["./client"].types': manifest.exports['./client'].types,
+            'exports["./client"].default': manifest.exports['./client'].default,
+            'exports["./cordis.patch.yml"]': manifest.exports['./cordis.patch.yml'],
+          }
+          const broken = Object.entries(refs)
+            .filter(([, path]) => typeof path !== 'string' || !existsSync(path.replace(/^\.\//, '')))
+          if (broken.length > 0) {
+            console.error(`::error::package.json points at missing files: ${broken.map(([key, path]) => `${key} -> ${path}`).join(', ')}`)
+            process.exit(1)
+          }
+          console.log(`manifest entry points exist: ${Object.values(refs).join(', ')}`)
+
+          const [, , report] = process.argv
+          const packed = JSON.parse(readFileSync(report, 'utf8'))
+          // npm prints a one-element array (npm >= 7); tolerate a bare object so
+          // an npm that changed shape fails with this message, not a TypeError.
+          const entry = Array.isArray(packed) ? packed[0] : packed
+          if (entry === undefined || !Array.isArray(entry.files)) {
+            console.error(`::error::unexpected \`npm pack --json\` shape: ${JSON.stringify(packed).slice(0, 200)}`)
+            process.exit(1)
+          }
+          // Some npm versions list directories too; only files count here.
+          const files = entry.files.map(item => item.path)
+            .filter(path => !path.endsWith('/')).sort()
+          const missing = EXPECTED.filter(path => !files.includes(path))
+          const extra = files.filter(path => !EXPECTED.includes(path))
+          if (missing.length > 0) console.error(`::error::npm pack would omit: ${missing.join(', ')}`)
+          if (extra.length > 0) console.error(`::error::npm pack would add unexpected files: ${extra.join(', ')}`)
+          if (missing.length > 0 || extra.length > 0) {
+            console.error(`packed ${files.length} files, expected ${EXPECTED.length}`)
+            process.exit(1)
+          }
+          console.log(`packed file list matches the expected ${files.length} files`)
+          EOF
+          node "$RUNNER_TEMP/verify-pack.mjs" "$RUNNER_TEMP/pack.json"
+
       # The tag is the release identity, so a `v*` ref that disagrees with
       # package.json must not reach the registry.
       - name: Verify the tag matches package.json
@@ -113,11 +195,23 @@ jobs:
           echo "::error::a real publish needs a v* tag ref (got $GITHUB_REF); dispatch the workflow on the release tag, or set dry_run to true"
           exit 1
 
+      # The dry-run entry point is unaffected by the opt-in switch: it never
+      # uploads, so it stays available before npm is set up.
       - name: Publish (dry run)
         if: ${{ inputs.dry_run == true }}
         run: npm publish --dry-run --access public
 
+      # Reached on a tag with the switch off: the run is a success (every check
+      # above passed, and GitHub-first distribution needs nothing else), so say
+      # why nothing was uploaded instead of leaving a silent no-op.
+      - name: Note that npm publishing is disabled
+        if: ${{ inputs.dry_run != true && startsWith(github.ref, 'refs/tags/v') && vars.NPM_PUBLISH_ENABLED != 'true' }}
+        run: |
+          echo "::notice::npm publishing is switched off for this repository — the release tag is verified and GitHub-first installation works. Set the repository variable NPM_PUBLISH_ENABLED to 'true' (after the manual bootstrap below) to publish from here."
+
+      # The upload itself: opt-in through the repository variable, so the
+      # GitHub-first release tag never fails on an npm account that is not set up.
       - name: Publish
-        if: ${{ inputs.dry_run != true && startsWith(github.ref, 'refs/tags/v') }}
+        if: ${{ inputs.dry_run != true && startsWith(github.ref, 'refs/tags/v') && vars.NPM_PUBLISH_ENABLED == 'true' }}
         run: npm publish --provenance --access public
 

@@ -191,6 +191,18 @@ dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-revi
 - **开发期**：递增 `-dev.N` 后缀（`0.1.0-dev.1` → `0.1.0-dev.2` …），让每次重建都是不同版本。
 - **正式发布**：递增版本本身（`0.1.0` → `0.1.1`）并打 tag。
 
+### 发布（维护者）
+
+`npm publish` **默认关闭**，所以推发布 tag 就是一次纯粹的 GitHub 优先发布：`publish` 工作流照样跑完全部校验
+（install → typecheck → test → build → 整 `lib/` 漂移校验 → tag 与 `package.json` 版本比对 → 打包清单守卫），
+然后**停在上传之前**，并在日志里打印一条说明。要打开上传，把仓库**变量** `NPM_PUBLISH_ENABLED` 设为 `true`
+（Settings → Secrets and variables → Actions → Variables）；从此推 tag 时，每次发布也会同步发到 npm，
+无需 token，带 provenance。
+
+**首发**是一次性的人工 bootstrap，必须在设置该变量**之前**完成：npm 的 Trusted Publishing 是包作用域的，
+且 npm 不允许用 OIDC 创建尚不存在的包，所以需要有人先从 tag checkout 手动 `npm publish --access public`
+一次，并在 npmjs.com 上配置 trusted publisher。`workflow_dispatch` 的空跑路径不受该开关影响，全程可用。
+
 装入新构建后，同样要**完全重启 `dsh web`**。
 
 ## 卸载
