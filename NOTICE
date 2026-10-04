@@ -1,0 +1,14 @@
+dsh-auto-review-plus
+Copyright (c) 2026 DMIAOCHEN
+
+This package is a modified derivative of works from the DeepSeek Harness project
+(https://github.com/deepseek-ai/deepseek-harness), MIT licensed:
+
+  - packages/experimental/auto-review            → src/review.ts, src/index.ts (adapted)
+  - packages/client/ui-permission-presets        → src/client/PermissionControl.tsx (ported)
+  - locale strings from the same packages        → locale/en.json, locale/zh.json
+
+Modifications: the review request carries the session id and reasoning effort,
+adds a configurable fallback reasoning level, adds a session-scoped reviewer
+route (session event + projection) with a client picker, and shadows the
+permission slot to host that picker.
