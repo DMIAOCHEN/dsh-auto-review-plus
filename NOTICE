@@ -2,11 +2,35 @@ dsh-auto-review-plus
 Copyright (c) 2026 DMIAOCHEN
 
 This package is a modified derivative of works from the DeepSeek Harness project
-(https://github.com/deepseek-ai/deepseek-harness), MIT licensed:
+(https://github.com/deepseek-ai/deepseek-harness), MIT licensed. The upstream
+copyright notice, reproduced verbatim as that license requires:
 
-  - packages/experimental/auto-review            → src/review.ts, src/index.ts (adapted)
-  - packages/client/ui-permission-presets        → src/client/PermissionControl.tsx (ported)
-  - locale strings from the same packages        → locale/en.json, locale/zh.json
+  Copyright (c) 2026 DeepSeek
+
+Derived sources — left: this package, right: the upstream file it comes from:
+
+  packages/experimental/auto-review/src/index.ts
+      → src/index.ts          (adapted: the Auto admission gate, the pre-execute
+                               review listener, the session-history reading)
+      → src/review.ts         (adapted: the review request construction and the
+                               reviewer decision parsing)
+
+  packages/client/ui-permission-presets
+      → src/client/PermissionControl.tsx         (ported from src/client/PermissionSelect.tsx)
+      → src/client/catalog.ts                    (verbatim from src/client/catalog.ts)
+      → src/client/presentation.ts               (verbatim from src/client/presentation.ts)
+      → src/client/PermissionSelect.module.css   (verbatim, same file name)
+      → src/client/css-modules.d.ts              (verbatim from src/css-modules.d.ts)
+      → src/client/index.tsx                     (the slot registration, the catalog
+                                                  wiring and the `/permission <preset>`
+                                                  write path, from src/client/index.ts)
+      → src/client/locales.ts                    (the `permission.access` dictionaries,
+                                                  verbatim from src/client/locales.ts)
+      → locale/en.json, locale/zh.json           (shipped locale strings)
+
+Everything else under src/ is original to this package: the reviewer-route
+storage/API/validation modules and the reviewer-picker React components, with
+their stylesheets.
 
 Modifications: the review request carries the session id and the session's
 reasoning effort, adds a configurable fallback reasoning level, adds a

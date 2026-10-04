@@ -30,6 +30,17 @@
     "NOTICE"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DMIAOCHEN/dsh-auto-review-plus.git"
+  },
+  "homepage": "https://github.com/DMIAOCHEN/dsh-auto-review-plus#readme",
+  "bugs": {
+    "url": "https://github.com/DMIAOCHEN/dsh-auto-review-plus/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && tsdown && node scripts/wrap-client.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.client.json",

@@ -76,8 +76,10 @@ tarball 或 git 源安装。
 
 然后：
 
-1. **完全重启 `dsh web`**。profile 层只在启动时装配——正在运行的进程仍持有启动时的插件集合，运行中安装
-   （或升级）的插件必须重启才生效。
+1. **重启 `dsh web`**。安装或卸载包会改动 profile 的依赖树与 `dsh.profile.bundles` 列表，这两者在启动时
+   读取，所以运行中的进程仍持有启动时的插件集合。**patch 内容**是例外：profile 的 patch 层在长驻界面上是
+   **热重载**的（dsh 对 profile patch 层自己的说法；真机 web profile 也声明了 `"patchReload": "live"`），
+   所以改动 patch 文件——包括本包自己的 `cordis.patch.yml`——无需重启即可生效。
 2. 确认安装：`npx -y @deepseek-ai/dsh plugin --profile web list` 会打印 profile 的依赖（该命令就是
    在 `$DSH_HOME/profiles/web` 里执行 `pnpm list`）。
 
@@ -144,6 +146,10 @@ auto-review-plus: cannot take over the "auto" preset — the official @deepseek-
 - **选择器展示的是审查模型的能力**：*思考级别* 行列出所选模型支持的级别。真正随审查请求发出的级别是
   该会话自己的思考级别；会话没有钉住时，才使用配置项 `fallbackReasoningEffort`（且仅当该审查路由确实
   提供该级别时才生效）。
+- **路由拒绝会话的思考级别时，会重试一次**：若钉住的审查路由不支持该会话正在使用的思考级别，这次审查
+  不会就此结束——插件会报告该级别与确切路由，然后**不带思考级别**重试这次审查。调用仍然会被审查，
+  而不是因为审查者根本没机会考虑的理由被拒绝。这是一次重试，不是兜底链：重试本身若失败，这次审查
+  仍然是失败（审查保持 fail-closed）。
 - **每次访问只问一次**：某个会话处于 Auto review 且没有记录时，选择器会自动弹出。这份记忆是组件内的
   状态、不是落盘的标记：每个会话每次页面加载问一次；刷新页面会再问一次（因为记录仍然缺失，仍然表示
   「跟随」）。
@@ -200,6 +206,32 @@ preset 即将消失；不处于 Auto review 的会话不受影响。
 
 按会话保存的审查记录**不会**随插件一起删除：它们在 storage domain 里，位于
 `$DSH_HOME/storages/auto_review_plus`（见下）。之后删掉该目录是安全的，只会丢失钉住的审查模型。
+
+## 故障与排查
+
+### Auto review 选项消失，或会话拒绝恢复
+
+本包用自己的 patch 停用了官方的 `auto-review` 行，所以**只有本包这一行成功挂载时，Auto review 才存在**。
+如果这一行挂载失败——最常见的是 `storageDomain` 服务缺失，或审查路由的存储域 `open` 失败——官方那一行
+仍然是被停用的，而没有任何东西接替它。宿主半是**先开域、后注册 preset** 的（域打不开就不会对外宣告这个
+准入口），所以存储故障的表现正好就是这个形状。
+
+- **现象**：新会话的权限控件里**看不到 Auto review**；已经处于 Auto review 的会话在**恢复时会响亮报错**
+  ——它存的 preset 需要活的集成，`permissionPresets.pinInitialPermission` 会拒绝，错误信息为
+  `permission: cannot restore preset "auto" without its active integration`。
+- **这是可见的失败，不是静默失败**：选项从界面上消失，恢复路径会抛错；这期间没有任何调用被审查。
+- **如何确认**：在 `dsh web` 的日志里找本包的挂载/注册诊断（加载器把它记为 `auto-review-plus`；
+  `storageDomain.open` 失败是重点要找的错误），并用
+  `npx -y @deepseek-ai/dsh plugin --profile web list` 确认本包究竟装没装上。
+- **如何回到可用的 Auto review**：修掉报出来的原因（通常是存储服务，或 `$DSH_HOME/storages` 下的数据
+  目录），然后重启 `dsh web`。卸载本包同样能立刻恢复官方 Auto review：那条 `disabled: true` 的 patch 是
+  随本包发布的，卸载它就会重新启用官方行。
+
+### 包装上了但没有接管
+
+见[必须停用官方 Auto review](#必须停用官方-auto-review强制)：日志里的
+`auto-review-plus: cannot take over the "auto" preset …` 说明官方那一行仍然生效，属于
+`dsh.profile.bundles` 的顺序问题。
 
 ## 已知限制
 

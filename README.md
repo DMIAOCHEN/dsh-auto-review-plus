@@ -84,8 +84,12 @@ layout in place. This project is always installed from a tarball or a git source
 
 Then:
 
-1. **Fully restart `dsh web`.** Profile layers are composed at startup only — a running process keeps the
-   plugin set it booted with, so a plugin installed (or upgraded) mid-run has no effect until you restart.
+1. **Restart `dsh web`.** Installing or removing a package changes the profile's dependency tree and its
+   `dsh.profile.bundles` list, which are read when the app starts, so a running process keeps the plugin set
+   it booted with. Patch *content* is the exception: a profile's patch layers are hot-reloaded on long-lived
+   surfaces (dsh's own wording for the profile patch layer; the shipped web profile declares
+   `"patchReload": "live"`), so an edit to a patch file — including this package's own `cordis.patch.yml` —
+   is picked up without a restart.
 2. Confirm it landed: `npx -y @deepseek-ai/dsh plugin --profile web list` prints the profile's dependencies
    (the same command is `pnpm list` inside `$DSH_HOME/profiles/web`).
 
@@ -160,6 +164,11 @@ Semantics:
   model supports. The effort actually sent with a review is the session's own effort, or — when the session
   pins none — the level configured as `fallbackReasoningEffort`, applied only if the review route really
   offers it.
+- **A route that rejects the session's level retries once.** If the pinned reviewer route does not support
+  the reasoning level the session is using, that review is not ended: the plugin reports the level and the
+  exact route, then retries the review **without** a reasoning effort. The call is still judged instead of
+  being denied for a reason the reviewer never got to consider. The retry is one attempt, not a fallback
+  chain: if it fails too, that failure is the review's failure (reviews stay fail-closed).
 - **Asked once per visit.** The first time a session is in Auto review without a record, the chooser also
   opens by itself. That memory is component state, not a stored flag: one question per session per page
   load. Reloading the page asks again, because the missing record still means "follow".
@@ -223,6 +232,36 @@ the preset they point at is about to disappear. Sessions that are not in Auto re
 The per-session reviewer records are **not** deleted with the plugin: they sit in a storage domain under
 `$DSH_HOME/storages/auto_review_plus` (see below). Removing that directory afterwards is safe and only
 loses the pinned reviewer models.
+
+## Troubleshooting
+
+### The Auto review option disappears, or a session refuses to resume
+
+This build disables the official `auto-review` row from its own patch, so **Auto review exists only while
+this package's own row is mounted**. If that row fails to mount — most often the `storageDomain` service is
+missing, or opening the reviewer-route storage domain fails — the official row stays disabled and nothing
+replaces it. The host half opens the domain *before* it registers the preset (a domain that fails to open
+keeps the gate from being advertised at all), so a storage failure has exactly this shape.
+
+- **Symptoms.** New sessions show no **Auto review** entry in the composer permission menu. A session that
+  was already in Auto review fails **loudly** when it is resumed: its stored preset requires its live
+  integration, and `permissionPresets.pinInitialPermission` refuses with
+  `permission: cannot restore preset "auto" without its active integration`.
+- **This is a visible failure, not a silent one.** The entry is gone from the UI and the resume path raises;
+  nothing is reviewed in the meantime.
+- **Confirm it.** Look in the `dsh web` log for this package's mount/registration diagnostics (the loader
+  reports it as `auto-review-plus`; a failed `storageDomain.open` is the error to look for) and check that
+  the package is installed at all with `npx -y @deepseek-ai/dsh plugin --profile web list`.
+- **Get back to a working Auto review.** Fix the reported cause — usually the storage service or its data
+  under `$DSH_HOME/storages` — and restart `dsh web`. Removing this package also restores the official Auto
+  review right away: the `disabled: true` patch ships with this package, so uninstalling it re-enables the
+  official row.
+
+### The package loaded but did not take over
+
+See [Take over from the official Auto review](#take-over-from-the-official-auto-review-mandatory): the log
+line `auto-review-plus: cannot take over the "auto" preset …` means the official row is still active, which
+is a bundle-order problem in `dsh.profile.bundles`.
 
 ## Known limitations
 

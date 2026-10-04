@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+# Least privilege, matching the explicit style of publish.yml: this job only
+# reads the checkout. No token is needed anywhere in it.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,3 +29,77 @@ jobs:
             echo "::error::lib/ is stale — run 'npm run build' and commit the result"
             exit 1
           fi
+
+      # The drift check above only covers lib/. A file missing from `files`, or
+      # an entry point pointing at something that was never committed, would
+      # ship silently and only surface for users of the published package (a
+      # dangling `exports["./client"]` breaks in the browser, after install).
+      # This packs for real — `--dry-run`, nothing is uploaded — and compares
+      # the result with the expected payload.
+      - name: Verify the manifest entry points and the packed file list
+        run: |
+          npm pack --dry-run --json > "$RUNNER_TEMP/pack.json"
+          cat > "$RUNNER_TEMP/verify-pack.mjs" <<'EOF'
+          import { existsSync, readFileSync } from 'node:fs'
+
+          // The published payload, in full. Derivation: package.json's `files`
+          // whitelist expands to 11 paths (`lib/types/**` and `locale/*` each
+          // contribute two) and npm always adds package.json itself; the count
+          // was confirmed once by hand against a real `npm pack --dry-run`
+          // (12 files). Keep this list in sync with `files` — that is the point.
+          const EXPECTED = [
+            'LICENSE',
+            'NOTICE',
+            'README.md',
+            'README.zh.md',
+            'cordis.patch.yml',
+            'lib/client.js',
+            'lib/index.js',
+            'lib/types/client/index.d.ts',
+            'lib/types/index.d.ts',
+            'locale/en.json',
+            'locale/zh.json',
+            'package.json',
+          ]
+
+          const manifest = JSON.parse(readFileSync('package.json', 'utf8'))
+          const refs = {
+            main: manifest.main,
+            types: manifest.types,
+            'exports["."].types': manifest.exports['.'].types,
+            'exports["."].default': manifest.exports['.'].default,
+            'exports["./client"].types': manifest.exports['./client'].types,
+            'exports["./client"].default': manifest.exports['./client'].default,
+            'exports["./cordis.patch.yml"]': manifest.exports['./cordis.patch.yml'],
+          }
+          const broken = Object.entries(refs)
+            .filter(([, path]) => typeof path !== 'string' || !existsSync(path.replace(/^\.\//, '')))
+          if (broken.length > 0) {
+            console.error(`::error::package.json points at missing files: ${broken.map(([key, path]) => `${key} -> ${path}`).join(', ')}`)
+            process.exit(1)
+          }
+          console.log(`manifest entry points exist: ${Object.values(refs).join(', ')}`)
+
+          const [, , report] = process.argv
+          const packed = JSON.parse(readFileSync(report, 'utf8'))
+          // npm prints a one-element array (npm >= 7); tolerate a bare object so
+          // an npm that changed shape fails with this message, not a TypeError.
+          const entry = Array.isArray(packed) ? packed[0] : packed
+          if (entry === undefined || !Array.isArray(entry.files)) {
+            console.error(`::error::unexpected \`npm pack --json\` shape: ${JSON.stringify(packed).slice(0, 200)}`)
+            process.exit(1)
+          }
+          // Some npm versions list directories too; only files count here.
+          const files = entry.files.map(item => item.path)
+            .filter(path => !path.endsWith('/')).sort()
+          const missing = EXPECTED.filter(path => !files.includes(path))
+          const extra = files.filter(path => !EXPECTED.includes(path))
+          if (missing.length > 0) console.error(`::error::npm pack would omit: ${missing.join(', ')}`)
+          if (extra.length > 0) console.error(`::error::npm pack would add unexpected files: ${extra.join(', ')}`)
+          if (missing.length > 0 || extra.length > 0) {
+            console.error(`packed ${files.length} files, expected ${EXPECTED.length}`)
+            process.exit(1)
+          }
+          console.log(`packed file list matches the expected ${files.length} files`)
+          EOF
+          node "$RUNNER_TEMP/verify-pack.mjs" "$RUNNER_TEMP/pack.json"
