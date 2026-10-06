@@ -1,6 +1,6 @@
 {
   "name": "dsh-auto-review-plus",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Auto review for dsh with session context (sessionId, reasoningEffort) and a per-session review-model picker",
   "type": "module",
   "main": "lib/index.js",

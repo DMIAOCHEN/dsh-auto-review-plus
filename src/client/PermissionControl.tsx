@@ -49,7 +49,7 @@ import {
   runReviewerRouteAdoption,
 } from './reviewer-route-chooser.ts'
 import { ReviewerRouteDialog } from './ReviewerRouteDialog.tsx'
-import { ReviewerRoutePrompts, shouldPromptReviewerRoute } from './reviewer-route-prompt.ts'
+import { ReviewerRouteAutoFragment } from './reviewer-route-prompt.ts'
 import { useReviewerRoute } from './use-reviewer-route.ts'
 import css from './PermissionSelect.module.css'
 
@@ -120,7 +120,13 @@ export function PermissionControl({
   const [reviewerDraft, setReviewerDraft] = useState<ReviewerRouteValue | null>(null)
   const [reviewerWriting, setReviewerWriting] = useState(false)
   const [reviewerWriteFailure, setReviewerWriteFailure] = useState<string | null>(null)
-  const reviewerPrompts = useRef(new ReviewerRoutePrompts())
+  /**
+   * The Auto-entry policy: it holds this control's watch of the host's Auto
+   * state and reads the PAGE-lifetime prompt memory (`reviewer-route-prompt.ts`),
+   * which is what survives a session switch. A control instance is exactly what
+   * a session switch destroys, so the memory must not live here.
+   */
+  const reviewerFragment = useRef(new ReviewerRouteAutoFragment())
   /** The host answer already adopted, so one answer loads its dependencies once. */
   const adoptedView = useRef<ReviewerRouteView | null>(null)
   /** Whether the person already edited the chooser in this opening. */
@@ -174,12 +180,22 @@ export function PermissionControl({
     // re-run this effect on every render.
   }, [confirmation, reviewerPrompt, reviewerRouteState.view])
 
-  // Ask once per session, the first time Auto is active without a pin.
+  // Fold every observation of the host's Auto state into the fragment policy.
+  // A control that mounts into an ALREADY Auto session (session switch, reload,
+  // restart) sees its first value as a restore and starts nothing, which is the
+  // whole difference between "Auto is on" and "Auto was just entered". This runs
+  // before the prompt effect below on purpose: it decides what that effect reads.
+  useEffect(() => {
+    if (selection === undefined) return
+    reviewerFragment.current.observe(sessionId, autoActive)
+  }, [autoActive, selection, sessionId])
+
+  // Ask once per ENTRY: only the moment Auto was entered asks, and only while the
+  // session has no pin. Auto merely being restored must stay silent.
   useEffect(() => {
     if (!autoActive) return
-    if (!shouldPromptReviewerRoute({
+    if (!reviewerFragment.current.shouldAsk(sessionId, {
       route: pinnedRoute,
-      answered: reviewerPrompts.current.isAnswered(sessionId),
       dialogOpen: confirmation !== null || reviewerPrompt,
     })) return
     reviewerEdited.current = false
@@ -221,11 +237,21 @@ export function PermissionControl({
     }
   })
 
-  const submit = (id: string): void => {
+  /**
+   * Submit one preset. Resolves whether the host accepted it: the automatic
+   * prompt's entry signal has to know, because a rejected write never switched
+   * the preset.
+   * @param id - preset value to switch to.
+   * @returns true once the `/permission` command matched.
+   */
+  const submit = (id: string): Promise<boolean> => {
     setPick(id)
-    void select(id)
+    return select(id)
       .catch(() => false)
-      .then(() => { setPick(null) })
+      .then((accepted) => {
+        setPick(null)
+        return accepted === true
+      })
   }
 
   const choose = (id: string): void => {
@@ -242,7 +268,9 @@ export function PermissionControl({
       setConfirmation(id)
       return
     }
-    submit(id)
+    // Switching to a plain preset cannot enter Auto, so only the submission's own
+    // outcome matters here.
+    void submit(id)
   }
 
   const closeConfirmation = (): void => {
@@ -314,10 +342,10 @@ export function PermissionControl({
 
   const closeReviewerPrompt = (): void => {
     // Closing writes nothing, invalidates a prompt whose write is still in
-    // flight, and either way the session is not asked again by itself: this
-    // memory is per control instance, not per pin.
+    // flight, and either way this fragment is done asking: the page memory keeps
+    // the answer, so a remount inside the same Auto fragment stays quiet.
     reviewerAttempt.current.cancel()
-    reviewerPrompts.current.answer(sessionId)
+    reviewerFragment.current.answered(sessionId)
     setReviewerWriteFailure(null)
     setReviewerPrompt(false)
   }
@@ -328,7 +356,7 @@ export function PermissionControl({
     // to carry the new pin back. A failed write keeps this dialog open with the
     // failure on screen instead of closing as if it had stored something, and a
     // dialog closed meanwhile takes the settlement with it.
-    reviewerPrompts.current.answer(sessionId)
+    reviewerFragment.current.answered(sessionId)
     const accepted = reviewerAttempt.current.begin()
     void writeReviewerRoute(reviewerDraft).then(
       () => {
@@ -343,11 +371,12 @@ export function PermissionControl({
   const confirmSelection = (id: string): void => {
     if (id !== AUTO_REVIEW) {
       closeConfirmation()
-      submit(id)
+      // Leaving Auto for a plain preset is observed as a real change, so the
+      // fragment policy closes the fragment on its own.
+      void submit(id)
       return
     }
     const draft = reviewerDraft
-    reviewerPrompts.current.answer(sessionId)
     const accepted = reviewerAttempt.current.begin()
     // Pin first, then switch the preset, so the automatic prompt finds a durable
     // answer. The dialog stays up until the write settles: the person chose a
@@ -360,7 +389,15 @@ export function PermissionControl({
         if (!accepted()) return
         acceptReviewerWrite()
         closeConfirmation()
-        submit(id)
+        // This control is the one switching Auto on, and the gate just asked for
+        // the reviewer model, so the entry is announced as already answered. It
+        // is announced BEFORE the preset write, because the projection update and
+        // the command response can arrive in either order; a rejected write is
+        // taken back right below.
+        reviewerFragment.current.enterFromControl(sessionId)
+        void submit(id).then((switched) => {
+          if (!switched) reviewerFragment.current.abandonEntry(sessionId)
+        })
       },
       () => undefined,
     )
