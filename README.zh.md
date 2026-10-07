@@ -55,24 +55,24 @@
 
 ```bash
 # GitHub，钉住发布 tag（推荐：可复现）
-npx -y @deepseek-ai/dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus#v0.1.2
+npx -y @deepseek-ai/dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus#v0.1.3
 
 # GitHub，跟随默认分支（每次推送都会漂移）
 npx -y @deepseek-ai/dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus
 
 # 本地 tarball，在仓库根目录执行
-npm pack && npx -y @deepseek-ai/dsh plugin --profile web add ./dsh-auto-review-plus-0.1.2.tgz
+npm pack && npx -y @deepseek-ai/dsh plugin --profile web add ./dsh-auto-review-plus-0.1.3.tgz
 
-# npm —— 尚未发布：首发 bootstrap 之前该命令会 404
+# npm —— 已发布，并带 provenance 证明（SLSA v1，由 GitHub Actions 签名）
 npx -y @deepseek-ai/dsh plugin --profile web add dsh-auto-review-plus@latest --registry=https://registry.npmjs.org
 ```
 
 **不要**用 `dsh plugin --profile web add .`：目录依赖会就地改写 profile 的依赖布局。本项目一律从
 tarball 或 git 源安装。
 
-> **tag 状态。** `v0.1.0` 是首个发布、`v0.1.1` 是第二个（两者的 tag 与 GitHub Release 都已存在）。当前
-> checkout 的版本是 `0.1.2`，所以上面那条钉版本的命令需要 `v0.1.2` tag：在维护者推送它之前，请用不带 tag
-> 的 GitHub 命令或本地 tarball。发布清单见下文。
+> **tag 状态。** `v0.1.0`、`v0.1.1`、`v0.1.2`、`v0.1.3` 都已作为 tag 与 GitHub Release 存在，且 `v0.1.3`
+> 也已发布到 npm。所以上面那条钉版本的命令可以直接使用；请让它与当前 checkout 的 `package.json` 版本保持
+> 一致。
 
 然后：
 
@@ -165,7 +165,7 @@ auto-review-plus: cannot take over the "auto" preset — the official @deepseek-
 标准错误输出是：
 
 ```
-dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-review-plus@0.1.2 is incompatible with dsh <新的版本>: peerDependencies {...}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for dsh-auto-review-plus@0.1.2 on dsh <新的版本> with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.
+dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-review-plus@0.1.3 is incompatible with dsh <新的版本>: peerDependencies {...}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for dsh-auto-review-plus@0.1.3 on dsh <新的版本> with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.
 ```
 
 （`{...}` 代表完整的 `@deepseek-ai/dsh-*` peer 映射。）`dsh: disabling profile plugin row "…"` 是**另一条**
@@ -176,9 +176,9 @@ dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-revi
 
 - **给这个精确版本开豁免** —— 最快，沿用现有构建。豁免是**两端都精确**的：一个包版本 + 一个 dsh 版本。
   ```bash
-  npx -y @deepseek-ai/dsh plugin --profile web allow-version dsh-auto-review-plus@0.1.2 --dsh-version <新的-dsh-版本> --accept-risk
+  npx -y @deepseek-ai/dsh plugin --profile web allow-version dsh-auto-review-plus@0.1.3 --dsh-version <新的-dsh-版本> --accept-risk
   npx -y @deepseek-ai/dsh plugin --profile web version-exemptions
-  npx -y @deepseek-ai/dsh plugin --profile web revoke-version dsh-auto-review-plus@0.1.2 --dsh-version <新的-dsh-版本>
+  npx -y @deepseek-ai/dsh plugin --profile web revoke-version dsh-auto-review-plus@0.1.3 --dsh-version <新的-dsh-版本>
   ```
   `allow-version` 会先警告：允许不兼容的插件版本可能破坏应用或损坏数据。请在你接受该风险时再执行。
   **bundle 准入同样会读这份豁免**，所以这一条命令也能清掉上面这条路径（警告文案本身就点名了这个命令）。
@@ -191,19 +191,21 @@ dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-revi
 在跑旧代码，而且没有任何报错。因此版本号必须一直往前走：
 
 - **开发期**：递增 `-dev.N` 后缀（`0.1.0-dev.1` → `0.1.0-dev.2` …），让每次重建都是不同版本。
-- **正式发布**：递增版本本身（`0.1.2` → `0.1.3`）并打 tag。
+- **正式发布**：递增版本本身（`0.1.3` → `0.1.4`）并打 tag。
 
 ### 发布（维护者）
 
-`npm publish` **默认关闭**，所以推发布 tag 就是一次纯粹的 GitHub 优先发布：`publish` 工作流照样跑完全部校验
-（install → typecheck → test → build → 整 `lib/` 漂移校验 → tag 与 `package.json` 版本比对 → 打包清单守卫），
-然后**停在上传之前**，并在日志里打印一条说明。要打开上传，把仓库**变量** `NPM_PUBLISH_ENABLED` 设为 `true`
-（Settings → Secrets and variables → Actions → Variables）；从此推 tag 时，每次发布也会同步发到 npm，
-无需 token，带 provenance。
+推发布 tag 就会自动发布到 npm：`publish` 工作流跑完全部校验（install → typecheck → test → build → 整
+`lib/` 漂移校验 → tag 与 `package.json` 版本比对 → 打包清单守卫 → 客户端 CSS 类名守卫），然后通过
+**可信发布（Trusted Publishing）**上传——无需 token，并附带 provenance 证明。
 
-**首发**是一次性的人工 bootstrap，必须在设置该变量**之前**完成：npm 的 Trusted Publishing 是包作用域的，
-且 npm 不允许用 OIDC 创建尚不存在的包，所以需要有人先从 tag checkout 手动 `npm publish --access public`
-一次，并在 npmjs.com 上配置 trusted publisher。`workflow_dispatch` 的空跑路径不受该开关影响，全程可用。
+上传由仓库**变量** `NPM_PUBLISH_ENABLED` 门控（Settings → Secrets and variables → Actions → Variables），
+**本仓库已设为 `true`**。改成别的值，推 tag 就又变回纯粹的 GitHub 优先发布：校验照跑，工作流在上传前停住并
+打印一条说明。`workflow_dispatch` 的空跑路径不受该开关影响，全程可用。
+
+让这一切成立的一次性**人工 bootstrap** 已完成：npm 的 Trusted Publishing 是包作用域的，且 npm 不允许用 OIDC
+创建尚不存在的包，所以最初那个版本是从 tag checkout 手动发布的，随后在 npmjs.com 上为本仓库配置了 trusted
+publisher。若将来有人从 fork 重新开始，只需把这一步再做一次。
 
 装入新构建后，同样要**完全重启 `dsh web`**。
 

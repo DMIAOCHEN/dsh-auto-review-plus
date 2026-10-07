@@ -63,25 +63,24 @@ Pick one — and keep the profile name (`web` is the GUI profile) consistent wit
 
 ```bash
 # GitHub, pinned to the release tag (recommended: reproducible)
-npx -y @deepseek-ai/dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus#v0.1.2
+npx -y @deepseek-ai/dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus#v0.1.3
 
 # GitHub, following the default branch (drifts with every push)
 npx -y @deepseek-ai/dsh plugin --profile web add github:DMIAOCHEN/dsh-auto-review-plus
 
 # Local tarball, from a checkout at the repository root
-npm pack && npx -y @deepseek-ai/dsh plugin --profile web add ./dsh-auto-review-plus-0.1.2.tgz
+npm pack && npx -y @deepseek-ai/dsh plugin --profile web add ./dsh-auto-review-plus-0.1.3.tgz
 
-# npm — not published yet: this command fails with 404 until the first release is bootstrapped
+# npm — published, with a provenance attestation (SLSA v1, signed by GitHub Actions)
 npx -y @deepseek-ai/dsh plugin --profile web add dsh-auto-review-plus@latest --registry=https://registry.npmjs.org
 ```
 
 Do **not** use `dsh plugin --profile web add .`: a directory dependency rewrites the profile's dependency
 layout in place. This project is always installed from a tarball or a git source.
 
-> **Tag status.** `v0.1.0` is the first release and `v0.1.1` is the second (both tags and GitHub Releases
-> exist). This checkout is version `0.1.2`, so the pinned command above needs the `v0.1.2` tag: until the
-> maintainers push it, use the untagged GitHub command or a local tarball. See the release checklist before
-> relying on the pinned form.
+> **Tag status.** `v0.1.0`, `v0.1.1`, `v0.1.2` and `v0.1.3` all exist as tags with GitHub Releases, and
+> `v0.1.3` is published on npm as well. The pinned command above therefore works as written; keep it in step
+> with the version this checkout declares in `package.json`.
 
 Then:
 
@@ -189,7 +188,7 @@ skip happens before its layers are composed, this package's `cordis.patch.yml` n
 simply absent — fail-safe, never half-loaded. The startup diagnostic on stderr is:
 
 ```
-dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-review-plus@0.1.2 is incompatible with dsh <new>: peerDependencies {...}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for dsh-auto-review-plus@0.1.2 on dsh <new> with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.
+dsh: skipping profile bundle "dsh-auto-review-plus": Error: Plugin dsh-auto-review-plus@0.1.3 is incompatible with dsh <new>: peerDependencies {...}. Running it may cause crashes or data loss. Update the plugin or install a plugin version compatible with this dsh runtime. To accept this risk explicitly, grant the exact-version exemption for dsh-auto-review-plus@0.1.3 on dsh <new> with `dsh plugin allow-version` or the plugin manager, then retry the installation or restart dsh. Exact-version exemption: not active.
 ```
 
 (`{...}` stands for the full `@deepseek-ai/dsh-*` peer map.) `dsh: disabling profile plugin row "…"` is the
@@ -202,9 +201,9 @@ Two remedies:
 - **Exempt this exact version** — fastest, keeps the current build. The approval is exact on both sides:
   one package version, one `dsh` version.
   ```bash
-  npx -y @deepseek-ai/dsh plugin --profile web allow-version dsh-auto-review-plus@0.1.2 --dsh-version <new-dsh-version> --accept-risk
+  npx -y @deepseek-ai/dsh plugin --profile web allow-version dsh-auto-review-plus@0.1.3 --dsh-version <new-dsh-version> --accept-risk
   npx -y @deepseek-ai/dsh plugin --profile web version-exemptions
-  npx -y @deepseek-ai/dsh plugin --profile web revoke-version dsh-auto-review-plus@0.1.2 --dsh-version <new-dsh-version>
+  npx -y @deepseek-ai/dsh plugin --profile web revoke-version dsh-auto-review-plus@0.1.3 --dsh-version <new-dsh-version>
   ```
   `allow-version` warns before it writes: allowing an incompatible plugin version can break the application
   or corrupt data. Only do it when you accept that. The exemption is read by **bundle admission** too, so the
@@ -220,21 +219,24 @@ versions always move:
 
 - **Development:** bump the `-dev.N` suffix (`0.1.0-dev.1` → `0.1.0-dev.2` …) so every rebuild is a
   distinct version.
-- **Release:** bump the version itself (`0.1.2` → `0.1.3`) and tag the release.
+- **Release:** bump the version itself (`0.1.3` → `0.1.4`) and tag the release.
 
 ### Releasing (maintainers)
 
-`npm publish` is **off by default**, so pushing the release tag is a pure GitHub-first release: the
-`publish` workflow still runs every check (install → typecheck → test → build → the whole-`lib/` drift
-check → the tag-vs-`package.json` check → the pack-manifest guard) and then stops, logging a notice
-instead of uploading. To switch the upload on, set the repository **variable** `NPM_PUBLISH_ENABLED` to
-`true` (Settings → Secrets and variables → Actions → Variables); from the next tag every release also
-publishes to npm, tokenless, with provenance.
+Pushing a release tag publishes to npm automatically: the `publish` workflow runs every check (install →
+typecheck → test → build → the whole-`lib/` drift check → the tag-vs-`package.json` check → the pack-manifest
+guard → the client-CSS guard) and then uploads through **Trusted Publishing** — tokenless, with a provenance
+attestation.
 
-The **first** publish is a one-time manual bootstrap and must happen **before** the variable is set: npm's
-Trusted Publishing is package-scoped and npm refuses to create a package from an OIDC-only publish, so
-someone has to `npm publish --access public` once from a tag checkout and configure the trusted publisher
-on npmjs.com. The `workflow_dispatch` dry run is not affected by the switch and stays available throughout.
+The upload is gated on the repository **variable** `NPM_PUBLISH_ENABLED` (Settings → Secrets and variables →
+Actions → Variables), which is **set to `true` here**. Set it to anything else and a tag becomes a pure
+GitHub-first release again: every check still runs, the workflow stops before uploading and logs a notice. The
+`workflow_dispatch` dry run is not affected by the switch and stays available throughout.
+
+The one-time **manual bootstrap** that made this possible is done: npm's Trusted Publishing is package-scoped, and npm
+refuses to create a package from an OIDC-only publish, so the very first version had to be published by hand
+from a tag checkout, after which the trusted publisher for this repository was configured on npmjs.com. A
+maintainer starting from a fork would repeat exactly that, once.
 
 After installing a new build, **fully restart `dsh web`** again.
 
